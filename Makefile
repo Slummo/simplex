@@ -16,6 +16,7 @@ endif
 SRC := src
 OBJ := obj
 BIN := bin
+MODELS := test_models
 
 # Target
 TARGET := simplex
@@ -41,7 +42,11 @@ $(OBJ)/%.o: %.c
 
 # Run release
 run: all
-	./$(BIN)/$(TARGET)
+	@if [ -n "$(ARGS)" ]; then \
+		./$(BIN)/$(TARGET) $(MODELS)/$(ARGS); \
+	else \
+		./$(BIN)/$(TARGET); \
+	fi
 
 # Call make with debug
 debug:
@@ -49,8 +54,13 @@ debug:
 
 # Run debugger
 drun: DEBUG := 1
+drun: DEBUG := 1
 drun: all
-	@gdb ./$(BIN)/$(TARGET)
+	@if [ -n "$(ARGS)" ]; then \
+		gdb --args ./$(BIN)/$(TARGET) $(MODELS)/$(ARGS); \
+	else \
+		gdb ./$(BIN)/$(TARGET); \
+	fi
 
 # Clean build artifacts
 clean:
