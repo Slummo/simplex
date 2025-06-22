@@ -53,8 +53,7 @@ int read_model(FILE* stream, uint32_t* n, uint32_t* m, uint32_t* is_max, gsl_vec
 
 int main(int argc, char** args) {
     if (argc > 2) {
-        fprintf(stderr,
-                "Wrong number of arguments! Usage: 'simplex <filename>' or just 'simplex' to read from stdin\n");
+        fprintf(stderr, "Wrong number of arguments! Usage: 'zmax <filename>' or just 'zmax' to read from stdin\n");
         return EXIT_FAILURE;
     }
 

@@ -19,7 +19,7 @@ BIN := bin
 MODELS := test_models
 
 # Target
-TARGET := simplex
+TARGET := zmax
 
 # Source files
 SRCS := $(shell find $(SRC) -type f -name "*.c")
