@@ -11,14 +11,14 @@
 typedef struct problem _problem, *problem_t;
 
 // Find problem basis indices with Phase 1 method
-uint32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_vector* b, uint32_t* iter_ptr);
+int32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_vector* b, uint32_t* pI_iter_ptr);
 
 // Frees arguments on error
 problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gsl_matrix* A, gsl_vector* b,
-                      uint32_t* basis);
+                      int32_t* basis);
 void problem_print(const problem_t p, const char* name);
 void problem_free(problem_t* pp);
 
-solution_t solve(problem_t problem);
+solution_t solve(problem_t problem, uint32_t pII_iter);
 
 #endif

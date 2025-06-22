@@ -87,8 +87,8 @@ int main(int argc, char** args) {
         return EXIT_FAILURE;
     }
 
-    uint32_t p1_iter = 0;
-    uint32_t* basis = problem_find_basis(n, m, A, b, &p1_iter);
+    uint32_t pI_iter = 0;
+    int32_t* basis = problem_find_basis(n, m, A, b, &pI_iter);
     if (!basis) {
         gsl_vector_free(c);
         gsl_matrix_free(A);
@@ -104,14 +104,12 @@ int main(int argc, char** args) {
 
     problem_print(p, "Problem");
 
-    solution_t s = solve(p);
+    solution_t s = solve(p, pI_iter);
     if (!s) {
         fprintf(stderr, "Failed to create solution\n");
         problem_free(&p);
         return EXIT_FAILURE;
     }
-    // Update with iterations from Phase1
-    solution_set_iterations(s, p1_iter + solution_iterations(s));
 
     solution_print(s);
 

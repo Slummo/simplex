@@ -9,22 +9,74 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 struct problem {
-    uint32_t n;          // Number of constraints
-    uint32_t m;          // Number of variables
-    uint32_t is_max;     // Boolean value to know if its a maximization problem
-    gsl_vector* c;       // Reduced costs (m)
-    gsl_matrix* A;       // Constraints matrix (n x m)
-    gsl_vector* b;       // RHS (n)
-    uint32_t* basis;     // Indices of basic variables (size n)
-    uint32_t* nonbasis;  // Indices of nonbasic variables (size m-n)
+    uint32_t n;         // Number of constraints
+    uint32_t m;         // Number of variables
+    uint32_t is_max;    // Boolean value to know if its a maximization problem
+    gsl_vector* c;      // Reduced costs (m)
+    gsl_matrix* A;      // Constraints matrix (n x m)
+    gsl_vector* b;      // RHS (n)
+    int32_t* basis;     // Indices of basic variables (size n)
+    int32_t* nonbasis;  // Indices of nonbasic variables (size m-n)
 };
 
 // Find problem basis indices with Phase 1 method
-uint32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_vector* b, uint32_t* iter_ptr) {
+int32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_vector* b, uint32_t* pI_iter_ptr) {
+    // Try first to identify an identity matrix
+    int32_t* basis = (int32_t*)malloc(sizeof(int32_t) * n);
+    if (!basis) {
+        fprintf(stderr, "Failed to allocate array for basis indices\n");
+        return NULL;
+    }
+
+    // Initialize basis indices to -1
+    for (uint32_t i = 0; i < n; i++) {
+        basis[i] = -1;
+    }
+
+    // Check for identity
+    for (uint32_t j = 0; j < m; j++) {
+        int32_t pivot_row = -1;
+        uint32_t valid = 1;
+        for (uint32_t i = 0; i < n; i++) {
+            double aij = gsl_matrix_get(A, i, j);
+            if (aij == (double)1) {
+                if (pivot_row == -1) {
+                    pivot_row = (int32_t)i;
+                } else {
+                    valid = 0;
+                    break;
+                }
+            } else if (aij != (double)0) {
+                valid = 0;
+                break;
+            }
+        }
+        if (valid && pivot_row != -1 && basis[pivot_row] == -1) {
+            basis[pivot_row] = j;
+        }
+    }
+
+    // Check if base is feasible
+    uint32_t feasible = 1;
+    for (uint32_t i = 0; i < n; i++) {
+        if (basis[i] == -1 || gsl_vector_get(b, i) < 0) {
+            feasible = 0;
+            break;
+        }
+    }
+
+    if (feasible) {
+        return basis;
+    }
+
+    // If not, try with Phase I method.
+    memset(basis, 0, sizeof(int32_t) * n);
+
     // One artificial variable per constraint
     gsl_vector* c = gsl_vector_alloc(m + n);
     if (!c) {
         fprintf(stderr, "Failed to alloc c for phase 1\n");
+        free(basis);
         return NULL;
     }
 
@@ -33,22 +85,24 @@ uint32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const 
         gsl_vector_set(c, i, i < m ? 0.0 : -1.0);
     }
 
-    uint32_t* artificial_indices = (uint32_t*)malloc(sizeof(uint32_t) * n);
+    int32_t* artificial_indices = (int32_t*)malloc(sizeof(int32_t) * n);
     if (!artificial_indices) {
         fprintf(stderr, "Failed to allocate array for artificial indices\n");
+        free(basis);
         gsl_vector_free(c);
         return NULL;
     }
 
     // Set array
     for (uint32_t i = 0; i < n; i++) {
-        artificial_indices[i] = m + i;
+        artificial_indices[i] = (int32_t)(m + i);
     }
 
     // Augmented matrix with m + n columns (one column for each artificial variable)
     gsl_matrix* A2 = gsl_matrix_alloc(n, m + n);
     if (!A2) {
         fprintf(stderr, "Failed to alloc A2\n");
+        free(basis);
         gsl_vector_free(c);
         free(artificial_indices);
         return NULL;
@@ -71,32 +125,25 @@ uint32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const 
 
     gsl_vector* b2 = vector_duplicate(b);
     if (!b2) {
+        free(basis);
         gsl_vector_free(c);
         free(artificial_indices);
         gsl_matrix_free(A2);
         return NULL;
     }
 
-    problem_t phase1 = problem_new(n, m + n, 1, c, A2, b2, artificial_indices);
-    if (!phase1) {
-        fprintf(stderr, "Failed to create phase1 problem\n");
+    problem_t phaseI = problem_new(n, m + n, 1, c, A2, b2, artificial_indices);
+    if (!phaseI) {
+        fprintf(stderr, "Failed to create phaseI problem\n");
         return NULL;
     }
 
-    problem_print(phase1, "Phase1");
+    // problem_print(phaseI, "phaseI");
 
-    solution_t s = solve(phase1);
+    solution_t s = solve(phaseI, 0);
     if (!s) {
-        fprintf(stderr, "Failed to create solution for phase1 problem\n");
-        problem_free(&phase1);
-        return NULL;
-    }
-
-    uint32_t* basis = (uint32_t*)malloc(sizeof(uint32_t) * n);
-    if (!basis) {
-        fprintf(stderr, "Failed to allocate array for basis indices\n");
-        problem_free(&phase1);
-        solution_free(&s);
+        fprintf(stderr, "Failed to create solution for phaseI problem\n");
+        problem_free(&phaseI);
         return NULL;
     }
 
@@ -106,10 +153,10 @@ uint32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const 
         basis = NULL;
     } else {
         gsl_vector* x = solution_optimal_vec(s);
-        uint32_t* final_basis = solution_basis(s);
+        int32_t* final_basis = solution_basis(s);
         for (uint32_t i = 0; i < n; i++) {
             // If the variable in basis is artificial (index >= m), make sure its value is 0
-            if (final_basis[i] >= m && gsl_vector_get(x, final_basis[i]) > 0) {
+            if (final_basis[i] >= (int32_t)m && gsl_vector_get(x, final_basis[i]) > 0) {
                 // Infeasible
                 free(basis);
                 basis = NULL;
@@ -120,9 +167,9 @@ uint32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const 
         }
     }
 
-    *iter_ptr = solution_iterations(s);
+    *pI_iter_ptr = solution_pI_iterations(s);
 
-    problem_free(&phase1);
+    problem_free(&phaseI);
     solution_free(&s);
 
     return basis;
@@ -130,7 +177,7 @@ uint32_t* problem_find_basis(uint32_t n, uint32_t m, const gsl_matrix* A, const 
 
 // Frees arguments on error
 problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gsl_matrix* A, gsl_vector* b,
-                      uint32_t* basis) {
+                      int32_t* basis) {
     problem_t p = (problem_t)malloc(sizeof(_problem));
     if (!p) {
         if (c)
@@ -158,7 +205,7 @@ problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gs
     p->b = b;
     p->basis = basis;
 
-    p->nonbasis = (uint32_t*)malloc(sizeof(uint32_t) * (m - n));
+    p->nonbasis = (int32_t*)malloc(sizeof(int32_t) * (m - n));
     if (!p->nonbasis) {
         problem_free(&p);
         return NULL;
@@ -266,7 +313,7 @@ void problem_free(problem_t* pp) {
     *pp = NULL;
 }
 
-solution_t solve(problem_t problem) {
+solution_t solve(problem_t problem, uint32_t pII_iter) {
     if (!problem) {
         return NULL;
     }
@@ -276,8 +323,8 @@ solution_t solve(problem_t problem) {
     gsl_matrix* A = problem->A;
     gsl_vector* b = problem->b;
     gsl_vector* c = problem->c;
-    uint32_t* B = problem->basis;
-    uint32_t* N = problem->nonbasis;
+    int32_t* B = problem->basis;
+    int32_t* N = problem->nonbasis;
 
     gsl_matrix* Ab = gsl_matrix_alloc(n, n);
     gsl_matrix* Ab_inv = NULL;
@@ -300,7 +347,7 @@ solution_t solve(problem_t problem) {
         return NULL;
     }
 
-    uint32_t iter = 0;
+    uint32_t pI_iter = 0;
     uint32_t unbounded = 0;
     while (1) {
         // Extract Ab matrix
@@ -401,10 +448,10 @@ solution_t solve(problem_t problem) {
 
         gsl_vector_free(aj);
         gsl_vector_free(d);
-        iter++;
+        pI_iter++;
     }
 
-    solution_t s = solution_new(m, gsl_vector_calloc(m), B, unbounded, iter);
+    solution_t s = solution_new(m, gsl_vector_calloc(m), B, unbounded, pI_iter, pII_iter);
 
     // Extract optimal solution and value
     if (s && !is_solution_unbounded(s)) {
