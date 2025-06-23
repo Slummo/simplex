@@ -17,6 +17,7 @@ SRC := src
 OBJ := obj
 BIN := bin
 MODELS := test_models
+MODEL_FILE_EXT := .txt
 
 # Target
 TARGET := zmax
@@ -43,7 +44,7 @@ $(OBJ)/%.o: %.c
 # Run release
 run: all
 	@if [ -n "$(ARGS)" ]; then \
-		./$(BIN)/$(TARGET) $(MODELS)/$(ARGS); \
+		./$(BIN)/$(TARGET) $(MODELS)/$(ARGS)$(MODEL_FILE_EXT); \
 	else \
 		./$(BIN)/$(TARGET); \
 	fi
@@ -57,7 +58,7 @@ drun: DEBUG := 1
 drun: DEBUG := 1
 drun: all
 	@if [ -n "$(ARGS)" ]; then \
-		gdb --args ./$(BIN)/$(TARGET) $(MODELS)/$(ARGS); \
+		gdb --args ./$(BIN)/$(TARGET) $(MODELS)/$(ARGS)$(MODEL_FILE_EXT); \
 	else \
 		gdb ./$(BIN)/$(TARGET); \
 	fi

@@ -1,7 +1,8 @@
+#include "utils.h"
+#include "simplex.h"
+#include "branch_bound.h"
 #include <stdio.h>
 #include <string.h>
-#include "problem.h"
-#include <utils.h>
 
 int read_model(FILE* stream, uint32_t* n, uint32_t* m, uint32_t* is_max, gsl_vector** c, gsl_matrix** A,
                gsl_vector** b) {
@@ -87,7 +88,7 @@ int main(int argc, char** args) {
     }
 
     uint32_t pI_iter = 0;
-    int32_t* basis = problem_find_basis(n, m, A, b, &pI_iter);
+    int32_t* basis = simplex_phaseI(n, m, A, b, &pI_iter);
     if (!basis) {
         gsl_vector_free(c);
         gsl_matrix_free(A);
@@ -103,7 +104,7 @@ int main(int argc, char** args) {
 
     problem_print(p, "Problem");
 
-    solution_t s = solve(p, pI_iter);
+    solution_t s = simplex_phaseII(p, pI_iter);
     if (!s) {
         fprintf(stderr, "Failed to create solution\n");
         problem_free(&p);
