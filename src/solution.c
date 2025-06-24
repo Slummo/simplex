@@ -1,6 +1,7 @@
 #include "solution.h"
 #include "utils.h"
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 
 struct solution {
@@ -13,7 +14,8 @@ struct solution {
     uint32_t pII_iter;      // Number of iterations of PhaseII to find solution
 };
 
-solution_t solution_new(uint32_t n, gsl_vector* x, int32_t* basis, uint32_t is_unbounded, uint32_t pI_iter,
+// Duplicates each mallocable param
+solution_t solution_new(uint32_t n, const gsl_vector* x, const int32_t* basis, uint32_t is_unbounded, uint32_t pI_iter,
                         uint32_t pII_iter) {
     if (!x || !basis) {
         return NULL;
@@ -25,8 +27,21 @@ solution_t solution_new(uint32_t n, gsl_vector* x, int32_t* basis, uint32_t is_u
     }
 
     s->n = n;
-    s->x = x;
-    s->basis = basis;
+    s->x = vector_duplicate(x);
+    if (!s->x) {
+        free(s);
+        return NULL;
+    }
+
+    s->basis = (int32_t*)malloc(sizeof(int32_t) * n);
+    if (!s->basis) {
+        gsl_vector_free(s->x);
+        free(s);
+        return NULL;
+    }
+
+    memcpy(s->basis, basis, sizeof(int32_t) * n);
+
     s->is_unbounded = is_unbounded;
     s->pI_iter = pI_iter;
     s->pII_iter = pII_iter;
@@ -39,24 +54,7 @@ solution_t solution_duplicate(const solution_t s) {
         return NULL;
     }
 
-    gsl_vector* x = vector_duplicate(s->x);
-    if (!x) {
-        fprintf(stderr, "Error in solution_duplicate\n");
-        return NULL;
-    }
-
-    int32_t* basis = (int32_t*)malloc(sizeof(int32_t) * s->n);
-    if (!basis) {
-        fprintf(stderr, "Error in solution_duplicate\n");
-        gsl_vector_free(x);
-        return NULL;
-    }
-
-    for (uint32_t i = 0; i < s->n; i++) {
-        basis[i] = s->basis[i];
-    }
-
-    return solution_new(s->n, x, basis, s->is_unbounded, s->pI_iter, s->pII_iter);
+    return solution_new(s->n, s->x, s->basis, s->is_unbounded, s->pI_iter, s->pII_iter);
 }
 
 // Checks if the i-th component of the solution is an integer
@@ -68,16 +66,16 @@ uint32_t solution_var_is_integer(const solution_t s, uint32_t i) {
 
     double xi = gsl_vector_get(s->x, i);
     double diff = fabs(xi - round(xi));
-    return !(diff > 1e-6);
+    return diff < 1e-8;
 }
 
 // Pretty print
-void solution_print(const solution_t s) {
+void solution_print(const solution_t s, const char* name) {
     if (!s) {
         return;
     }
 
-    printf("\n================== SOLUTION ==================\n");
+    printf("\n================== Solution for %s ==================\n", name);
     if (s->is_unbounded) {
         printf("infinite\n");
     } else {
@@ -102,6 +100,7 @@ void solution_free(solution_t* sp) {
     }
 
     gsl_vector_free((*sp)->x);
+    free((*sp)->basis);
     free(*sp);
     *sp = NULL;
 }
@@ -124,7 +123,7 @@ const int32_t* solution_basis(const solution_t s) {
     return s ? s->basis : NULL;
 }
 
-uint32_t is_solution_unbounded(const solution_t s) {
+uint32_t solution_is_unbounded(const solution_t s) {
     return s ? s->is_unbounded : 0;
 }
 

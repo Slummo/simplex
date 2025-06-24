@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <gsl/gsl_errno.h>
+
 int read_model(FILE* stream, uint32_t* n, uint32_t* m, uint32_t* is_max, gsl_vector** c, gsl_matrix** A,
                gsl_vector** b) {
     if (stream == stdin) {
@@ -70,6 +72,8 @@ int main(int argc, char** args) {
         stream = stdin;
     }
 
+    gsl_set_error_handler_off();
+
     uint32_t n, m, is_max;
     gsl_vector* c = NULL;
     gsl_matrix* A = NULL;
@@ -87,16 +91,11 @@ int main(int argc, char** args) {
         return EXIT_FAILURE;
     }
 
-    uint32_t pI_iter = 0;
-    int32_t* basis = simplex_phaseI(n, m, A, b, &pI_iter);
-    if (!basis) {
-        gsl_vector_free(c);
-        gsl_matrix_free(A);
-        gsl_vector_free(b);
-        return EXIT_FAILURE;
-    }
+    problem_t p;
+    solution_t s;
 
-    problem_t p = problem_new(n, m, is_max, c, A, b, basis);
+    /* Simplex */
+    p = problem_new2(n, m, is_max, c, A, b);
     if (!p) {
         fprintf(stderr, "Failed to create problem\n");
         return EXIT_FAILURE;
@@ -104,16 +103,39 @@ int main(int argc, char** args) {
 
     problem_print(p, "Problem");
 
-    solution_t s = simplex_phaseII(p, pI_iter);
+    s = simplex_phaseII(p);
     if (!s) {
-        fprintf(stderr, "Failed to create solution\n");
+        fprintf(stderr, "Failed to solve with Simplex\n");
         problem_free(&p);
         return EXIT_FAILURE;
     }
 
-    solution_print(s);
-
-    problem_free(&p);
+    solution_print(s, "Simplex");
     solution_free(&s);
+    problem_free(&p);
+
+    /* Branch and bound */
+    p = problem_new2(n, m, is_max, c, A, b);
+    if (!p) {
+        fprintf(stderr, "Failed to create problem\n");
+        return EXIT_FAILURE;
+    }
+
+    problem_print(p, "Problem");
+
+    s = branch_and_bound(p);
+    if (!s) {
+        fprintf(stderr, "Failed to solve with Branch and bound\n");
+        problem_free(&p);
+        return EXIT_FAILURE;
+    }
+
+    solution_print(s, "Branch and bound");
+    solution_free(&s);
+    problem_free(&p);
+
+    gsl_vector_free(c);
+    gsl_matrix_free(A);
+    gsl_vector_free(b);
     return EXIT_SUCCESS;
 }

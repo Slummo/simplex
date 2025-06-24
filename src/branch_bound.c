@@ -1,5 +1,6 @@
 #include "branch_bound.h"
 #include "simplex.h"
+#include "pstack.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -17,7 +18,7 @@ int32_t problem_select_branch_var(const solution_t s) {
     }
 
     for (uint32_t i = 0; i < solution_x(s)->size; i++) {
-        if (solution_var_is_integer(s, i)) {
+        if (!solution_var_is_integer(s, i)) {
             return (int32_t)i;
         }
     }
@@ -153,10 +154,81 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
         }
     }
 
-    return problem_new(n2, m2, problem_is_max(p), c2, A2, b2, basis2);
+    return problem_new(n2, m2, problem_is_max(p), c2, A2, b2, basis2, problem_pI_iter(p));
 }
 
 // Branch and bound method on linear problem p
 solution_t branch_and_bound(const problem_t p) {
-    return NULL;
+    if (!p) {
+        return NULL;
+    }
+
+    pstack_t stack = pstack_new();
+    if (!stack) {
+        return NULL;
+    }
+
+    if (!pstack_push(stack, p)) {
+        pstack_free(&stack);
+        return NULL;
+    }
+
+    solution_t best = NULL;
+
+    while (!pstack_empty(stack)) {
+        problem_t current = pstack_pop(stack);
+        if (!current) {
+            continue;
+        }
+
+        solution_t s = simplex_phaseII(current);
+
+        if (!s || solution_is_unbounded(s)) {
+            solution_free(&s);
+            problem_free(&current);
+            continue;
+        }
+
+        int32_t branch_var = problem_select_branch_var(s);
+        if (branch_var == -2) {
+            solution_free(&s);
+            problem_free(&current);
+            continue;
+        }
+
+        // Only integer variables
+        if (branch_var == -1) {
+            if (!best) {
+                best = s;
+            } else if (problem_is_max(current) ? solution_z(s) > solution_z(best) : solution_z(s) < solution_z(best)) {
+                solution_free(&best);
+                best = s;
+            } else {
+                solution_free(&s);
+            }
+
+            problem_free(&current);
+            continue;
+        }
+
+        // Branch on non-integer variable
+        double bound = gsl_vector_get(solution_x(s), branch_var);
+        problem_t left = problem_branch(current, branch_var, bound, 'U');
+        problem_t right = problem_branch(current, branch_var, bound, 'L');
+
+        if (left) {
+            pstack_push(stack, left);
+        }
+
+        if (right) {
+            pstack_push(stack, right);
+        }
+
+        solution_free(&s);
+        problem_free(&current);
+    }
+
+    pstack_free(&stack);
+
+    return best;
 }

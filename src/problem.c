@@ -1,5 +1,6 @@
 #include "problem.h"
 #include "utils.h"
+#include "simplex.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,54 +18,95 @@ struct problem {
     gsl_vector* b;      // RHS (n)
     int32_t* basis;     // Indices of basic variables (size n)
     int32_t* nonbasis;  // Indices of nonbasic variables (size m-n)
+    uint32_t pI_iter;   // Number of iterations to find base with PhaseI
 };
 
-// Frees arguments on error
-problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gsl_matrix* A, gsl_vector* b,
-                      int32_t* basis) {
+// Duplicates each mallocable param
+problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
+                      const gsl_vector* b, const int32_t* basis, uint32_t pI_iter) {
     if (!c || !A || !b || !basis) {
         return NULL;
     }
 
     problem_t p = (problem_t)malloc(sizeof(_problem));
     if (!p) {
-        if (c)
-            gsl_vector_free(c);
-        if (A)
-            gsl_matrix_free(A);
-        if (b)
-            gsl_vector_free(b);
-        if (basis)
-            free(basis);
+        return NULL;
+    }
+
+    p->n = n;
+    p->m = m;
+    p->is_max = is_max;
+    p->c = vector_duplicate(c);
+    if (!p->c) {
+        free(p);
         return NULL;
     }
 
     if (!is_max) {
         // Multiply by -1 to have the objective function
         // in standard form
-        gsl_vector_scale(c, -1.0);
+        gsl_vector_scale(p->c, -1.0);
     }
 
-    p->n = n;
-    p->m = m;
-    p->is_max = is_max;
-    p->c = c;
-    p->A = A;
-    p->b = b;
-    p->basis = basis;
+    p->A = matrix_duplicate(A);
+    if (!p->A) {
+        gsl_vector_free(p->c);
+        free(p);
+        return NULL;
+    }
+
+    p->b = vector_duplicate(b);
+    if (!p->b) {
+        gsl_vector_free(p->c);
+        gsl_matrix_free(p->A);
+        free(p);
+        return NULL;
+    }
+
+    // Duplicate basis
+    p->basis = (int32_t*)malloc(sizeof(int32_t) * n);
+    if (!p->basis) {
+        gsl_vector_free(p->c);
+        gsl_matrix_free(p->A);
+        gsl_vector_free(p->b);
+        free(p);
+        return NULL;
+    }
+
+    memcpy(p->basis, basis, sizeof(int32_t) * n);
 
     p->nonbasis = (int32_t*)malloc(sizeof(int32_t) * (m - n));
     if (!p->nonbasis) {
-        problem_free(&p);
+        gsl_vector_free(p->c);
+        gsl_matrix_free(p->A);
+        gsl_vector_free(p->b);
+        free(p->basis);
+        free(p);
         return NULL;
     }
 
     // Fill non-basis from remaining indices
     uint32_t* used = calloc(m, sizeof(uint32_t));
+    if (!used) {
+        gsl_vector_free(p->c);
+        gsl_matrix_free(p->A);
+        gsl_vector_free(p->b);
+        free(p->basis);
+        free(p->nonbasis);
+        free(p);
+        return NULL;
+    }
+
     for (uint32_t i = 0; i < n; i++) {
         if (used[basis[i]]) {
             fprintf(stderr, "Duplicate basis index %u\n", basis[i]);
-            problem_free(&p);
+            gsl_vector_free(p->c);
+            gsl_matrix_free(p->A);
+            gsl_vector_free(p->b);
+            free(p->basis);
+            free(p->nonbasis);
+            free(p);
+            free(used);
             return NULL;
         }
         used[basis[i]] = 1;
@@ -79,7 +121,21 @@ problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gs
     }
     free(used);
 
+    p->pI_iter = pI_iter;
+
     return p;
+}
+
+problem_t problem_new2(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
+                       const gsl_vector* b) {
+    uint32_t pI_iter = 0;
+    // Find a base with phaseI
+    int32_t* basis = simplex_phaseI(n, m, A, b, &pI_iter);
+    if (!basis) {
+        return NULL;
+    }
+
+    return problem_new(n, m, is_max, c, A, b, basis, pI_iter);
 }
 
 problem_t problem_duplicate(const problem_t p) {
@@ -87,41 +143,7 @@ problem_t problem_duplicate(const problem_t p) {
         return NULL;
     }
 
-    gsl_vector* c = vector_duplicate(p->c);
-    if (!c) {
-        fprintf(stderr, "Error in problem_duplicate\n");
-        return NULL;
-    }
-
-    gsl_matrix* A = matrix_duplicate(p->A);
-    if (!A) {
-        fprintf(stderr, "Error in problem_duplicate\n");
-        gsl_vector_free(c);
-        return NULL;
-    }
-
-    gsl_vector* b = vector_duplicate(p->b);
-    if (!A) {
-        fprintf(stderr, "Error in problem_duplicate\n");
-        gsl_vector_free(c);
-        gsl_matrix_free(A);
-        return NULL;
-    }
-
-    int32_t* basis = (int32_t*)malloc(sizeof(int32_t) * p->n);
-    if (!basis) {
-        fprintf(stderr, "Error in problem_duplicate\n");
-        gsl_vector_free(c);
-        gsl_matrix_free(A);
-        gsl_vector_free(b);
-        return NULL;
-    }
-
-    for (uint32_t i = 0; i < p->n; i++) {
-        basis[i] = p->basis[i];
-    }
-
-    return problem_new(p->n, p->m, p->is_max, c, A, b, basis);
+    return problem_new(p->n, p->m, p->is_max, p->c, p->A, p->b, p->basis, p->pI_iter);
 }
 
 #define TERM_WIDTH 8
@@ -240,4 +262,53 @@ const int32_t* problem_nonbasis(const problem_t p) {
 
 int32_t* problem_nonbasis_mut(const problem_t p) {
     return p ? p->nonbasis : NULL;
+}
+
+uint32_t problem_pI_iter(const problem_t p) {
+    return p ? p->pI_iter : 0;
+}
+
+/* SETTERS */
+void problem_set_basis_nonbasis(const problem_t p, int32_t* basis) {
+    if (!p) {
+        return;
+    }
+
+    p->basis = basis;
+
+    p->nonbasis = (int32_t*)malloc(sizeof(int32_t) * (p->m - p->n));
+    if (!p->nonbasis) {
+        return;
+    }
+
+    // Fill non-basis from remaining indices
+    uint32_t* used = calloc(p->m, sizeof(uint32_t));
+    if (!used) {
+        free(p->nonbasis);
+        return;
+    }
+
+    for (uint32_t i = 0; i < p->n; i++) {
+        if (used[basis[i]]) {
+            fprintf(stderr, "Duplicate basis index %u\n", basis[i]);
+            gsl_vector_free(p->c);
+            gsl_matrix_free(p->A);
+            gsl_vector_free(p->b);
+            free(p->basis);
+            free(p->nonbasis);
+            free(p);
+            free(used);
+            return;
+        }
+        used[basis[i]] = 1;
+    }
+
+    // Fill non-basis with those not used
+    uint32_t ni = 0;
+    for (uint32_t i = 0; i < p->m; i++) {
+        if (!used[i]) {
+            p->nonbasis[ni++] = i;
+        }
+    }
+    free(used);
 }

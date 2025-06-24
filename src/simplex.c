@@ -56,6 +56,7 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
     }
 
     if (feasible) {
+        pI_iter_ptr = 0;
         return basis;
     }
 
@@ -122,28 +123,36 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
         return NULL;
     }
 
-    problem_t phaseI = problem_new(n, m + n, 1, c, A2, b2, artificial_indices);
+    // The phaseI problem doesn't need another PhaseI, it always
+    // has a feasible base and goes straight to PhaseII
+    problem_t phaseI = problem_new(n, m + n, 1, c, A2, b2, artificial_indices, 0);
     if (!phaseI) {
         fprintf(stderr, "Failed to create phaseI problem\n");
+        free(basis);
+        gsl_vector_free(c);
+        free(artificial_indices);
+        gsl_matrix_free(A2);
         return NULL;
     }
 
-    // problem_print(phaseI, "phaseI");
-
-    solution_t s = simplex_phaseII(phaseI, 0);
-    if (!s) {
+    solution_t pII_s = simplex_phaseII(phaseI);
+    if (!pII_s) {
         fprintf(stderr, "Failed to create solution for phaseI problem\n");
+        free(basis);
+        gsl_vector_free(c);
+        free(artificial_indices);
+        gsl_matrix_free(A2);
         problem_free(&phaseI);
         return NULL;
     }
 
     // No feasible base for original problem
-    if (solution_z(s) < 0) {
+    if (solution_z(pII_s) < 0) {
         free(basis);
         basis = NULL;
     } else {
-        const gsl_vector* x = solution_x(s);
-        const int32_t* final_basis = solution_basis(s);
+        const gsl_vector* x = solution_x(pII_s);
+        const int32_t* final_basis = solution_basis(pII_s);
         for (uint32_t i = 0; i < n; i++) {
             // If the variable in basis is artificial (index >= m), make sure its value is 0
             if (final_basis[i] >= (int32_t)m && gsl_vector_get(x, final_basis[i]) > 0) {
@@ -157,21 +166,23 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
         }
     }
 
-    *pI_iter_ptr = solution_pI_iterations(s);
+    *pI_iter_ptr = solution_pII_iterations(pII_s);
 
+    gsl_vector_free(c);
+    free(artificial_indices);
+    gsl_matrix_free(A2);
     problem_free(&phaseI);
-    solution_free(&s);
+    solution_free(&pII_s);
 
     return basis;
 }
 
 // simplex_phaseII method on linear problem p
-solution_t simplex_phaseII(const problem_t problem, uint32_t pII_iter) {
+solution_t simplex_phaseII(const problem_t problem) {
     if (!problem) {
         fprintf(stderr, "problem is NULL in simplex_phaseII\n");
         return NULL;
     }
-
     uint32_t n = problem_n(problem);
     uint32_t m = problem_m(problem);
     const gsl_matrix* A = problem_A(problem);
@@ -188,20 +199,15 @@ solution_t simplex_phaseII(const problem_t problem, uint32_t pII_iter) {
     gsl_vector* r = gsl_vector_alloc(m - n);
 
     if (!Ab || !xB || !cb || !cn || !r) {
-        if (Ab)
-            gsl_matrix_free(Ab);
-        if (xB)
-            gsl_vector_free(xB);
-        if (cb)
-            gsl_vector_free(cb);
-        if (cn)
-            gsl_vector_free(cn);
-        if (r)
-            gsl_vector_free(r);
+        gsl_matrix_free(Ab);
+        gsl_vector_free(xB);
+        gsl_vector_free(cb);
+        gsl_vector_free(cn);
+        gsl_vector_free(r);
         return NULL;
     }
 
-    uint32_t pI_iter = 0;
+    uint32_t pII_iter = 0;
     uint32_t unbounded = 0;
     while (1) {
         // Extract Ab matrix
@@ -302,13 +308,13 @@ solution_t simplex_phaseII(const problem_t problem, uint32_t pII_iter) {
 
         gsl_vector_free(aj);
         gsl_vector_free(d);
-        pI_iter++;
+        pII_iter++;
     }
 
-    solution_t s = solution_new(m, gsl_vector_calloc(m), basis, unbounded, pI_iter, pII_iter);
+    solution_t s = solution_new(m, gsl_vector_calloc(m), basis, unbounded, problem_pI_iter(problem), pII_iter);
 
     // Extract optimal solution and value
-    if (s && !is_solution_unbounded(s)) {
+    if (s && !solution_is_unbounded(s)) {
         gsl_vector* v = solution_x_mut(s);
         double z = 0.0;
         for (uint32_t i = 0; i < n; i++) {
