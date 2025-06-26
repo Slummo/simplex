@@ -10,21 +10,21 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 struct problem {
-    uint32_t n;            // Number of constraints
-    uint32_t m;            // Number of variables
-    uint32_t is_max;       // Boolean value to know if its a maximization problem
-    gsl_vector* c;         // Reduced costs (m)
-    gsl_matrix* A;         // Constraints matrix (n x m)
-    gsl_vector* b;         // RHS (n)
-    int32_t* basis;        // Indices of basic variables (size n)
-    int32_t* nonbasis;     // Indices of nonbasic variables (size m-n)
-    uint32_t pI_iter;      // Number of iterations to find base with PhaseI
-    uint32_t* is_integer;  // Boolean values to know if a variable is integer
+    uint32_t n;             // Number of constraints
+    uint32_t m;             // Number of variables
+    uint32_t is_max;        // Boolean value to know if its a maximization problem
+    gsl_vector* c;          // Reduced costs (m)
+    gsl_matrix* A;          // Constraints matrix (n x m)
+    gsl_vector* b;          // RHS (n)
+    int32_t* basis;         // Indices of basic variables (size n)
+    int32_t* nonbasis;      // Indices of nonbasic variables (size m-n)
+    uint32_t pI_iter;       // Number of iterations to find base with PhaseI
+    variable_t* variables;  // Array of variables
 };
 
 // Duplicates each mallocable param
 problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                      const gsl_vector* b, const int32_t* basis, uint32_t pI_iter, const uint32_t* is_integer) {
+                      const gsl_vector* b, const int32_t* basis, uint32_t pI_iter, const variable_t* variables) {
     if (!c || !A || !b || !basis) {
         return NULL;
     }
@@ -56,7 +56,7 @@ problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector*
         goto fail;
     }
 
-    // Copy basis array
+    // Duplicate basis array
     p->basis = (int32_t*)malloc(sizeof(int32_t) * n);
     if (!p->basis) {
         goto fail;
@@ -93,16 +93,12 @@ problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector*
 
     p->pI_iter = pI_iter;
 
-    // Handle integer flags if provided
-    if (is_integer) {
-        p->is_integer = (uint32_t*)malloc(sizeof(uint32_t) * m);
-        if (!p->is_integer) {
-            goto fail;
-        }
-        memcpy(p->is_integer, is_integer, sizeof(uint32_t) * m);
-    } else {
-        p->is_integer = NULL;
+    // Duplicate variables array
+    p->variables = (variable_t*)malloc(sizeof(variable_t) * m);
+    if (!p->variables) {
+        goto fail;
     }
+    memcpy(p->variables, variables, sizeof(variable_t) * m);
 
     return p;
 
@@ -113,21 +109,21 @@ fail:
     free(p->basis);
     free(used);
     free(p->nonbasis);
-    free(p->is_integer);
+    free(p->variables);
     problem_free(&p);
     return NULL;
 }
 
 problem_t problem_new2(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                       const gsl_vector* b, const uint32_t* is_integer) {
+                       const gsl_vector* b, const variable_t* variables) {
     // Find a base with phaseI
     uint32_t pI_iter = 0;
-    int32_t* basis = simplex_phaseI(n, m, A, b, &pI_iter);
+    int32_t* basis = simplex_phaseI(n, m, A, b, variables, &pI_iter);
     if (!basis) {
         return NULL;
     }
 
-    return problem_new(n, m, is_max, c, A, b, basis, pI_iter, is_integer);
+    return problem_new(n, m, is_max, c, A, b, basis, pI_iter, variables);
 }
 
 problem_t problem_duplicate(const problem_t p) {
@@ -135,7 +131,7 @@ problem_t problem_duplicate(const problem_t p) {
         return NULL;
     }
 
-    return problem_new(p->n, p->m, p->is_max, p->c, p->A, p->b, p->basis, p->pI_iter, p->is_integer);
+    return problem_new(p->n, p->m, p->is_max, p->c, p->A, p->b, p->basis, p->pI_iter, p->variables);
 }
 
 uint32_t problem_is_milp(const problem_t p) {
@@ -144,7 +140,7 @@ uint32_t problem_is_milp(const problem_t p) {
     }
 
     for (uint32_t i = 0; i < p->m; i++) {
-        if (p->is_integer[i]) {
+        if (variable_is_integer(p->variables[i])) {
             return 1;
         }
     }
@@ -211,7 +207,12 @@ void problem_print(const problem_t p, const char* name) {
         printf("\n");
     }
 
-    printf("\n");
+    printf("\nvariables:\n");
+    for (uint32_t i = 0; i < p->m; i++) {
+        printf("\t");
+        variable_print(p->variables[i]);
+    }
+    puts("");
 }
 
 void problem_free(problem_t* pp) {
@@ -224,6 +225,7 @@ void problem_free(problem_t* pp) {
     gsl_vector_free((*pp)->b);
     free((*pp)->basis);
     free((*pp)->nonbasis);
+    variables_arr_free(&(*pp)->variables, (*pp)->m);
     free(*pp);
     *pp = NULL;
 }
@@ -274,8 +276,12 @@ uint32_t problem_pI_iter(const problem_t p) {
     return p ? p->pI_iter : 0;
 }
 
-const uint32_t* problem_integers(const problem_t p) {
-    return p ? p->is_integer : NULL;
+const variable_t* problem_variables(const problem_t p) {
+    return p ? p->variables : NULL;
+}
+
+variable_t problem_variable(const problem_t p, uint32_t i) {
+    return p ? p->variables[i] : NULL;
 }
 
 /* SETTERS */

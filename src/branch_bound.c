@@ -11,14 +11,15 @@
 // Returns -2 on error, -1 if the solution contains only
 // integers or the index of the first non-integer
 // variable on success
-int32_t problem_select_branch_var(const solution_t s, const uint32_t* is_integer) {
-    if (!s || !is_integer) {
+int32_t problem_select_branch_var(const variable_t* variables, uint32_t variables_num,
+                                  const solution_t current_solution) {
+    if (!variables || !current_solution) {
         fprintf(stderr, "Some arguments are NULL in problem_select_branch_var\n");
         return -2;
     }
 
-    for (uint32_t i = 0; i < solution_x(s)->size; i++) {
-        if (is_integer[i] && !solution_var_is_integer(s, i)) {
+    for (uint32_t i = 0; i < variables_num; i++) {
+        if (variable_is_integer(variables[i]) && !solution_var_is_integer(current_solution, i)) {
             return (int32_t)i;
         }
     }
@@ -37,10 +38,12 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
 
     uint32_t n = problem_n(p);
     uint32_t m = problem_m(p);
+    uint32_t is_max = problem_is_max(p);
     const gsl_vector* c = problem_c(p);
     const gsl_vector* b = problem_b(p);
     const gsl_matrix* A = problem_A(p);
     const int32_t* basis = problem_basis(p);
+    const variable_t* variables = problem_variables(p);
 
     uint32_t n2 = n + 1;  // +1 for the new constraint
     uint32_t m2 = m + 1;  // +1 for the new slack/surplus variable
@@ -144,7 +147,7 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
     } else {
         // Find a new feasible base
         uint32_t pI_iters = 0;
-        basis2 = simplex_phaseI(n2, m2, A2, b2, &pI_iters);
+        basis2 = simplex_phaseI(n2, m2, A2, b2, variables, &pI_iters);
         if (!basis2) {
             fprintf(stderr, "Failed to find basis with Phase1 in problem_branch\n");
             gsl_vector_free(c2);
@@ -154,7 +157,7 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
         }
     }
 
-    return problem_new(n2, m2, problem_is_max(p), c2, A2, b2, basis2, problem_pI_iter(p), problem_integers(p));
+    return problem_new(n2, m2, is_max, c2, A2, b2, basis2, problem_pI_iter(p), variables);
 }
 
 // Branch and bound method on linear problem p
@@ -176,45 +179,46 @@ solution_t branch_and_bound(const problem_t p) {
     solution_t best = NULL;
 
     while (!pstack_empty(stack)) {
-        problem_t current = pstack_pop(stack);
-        if (!current) {
+        problem_t current_problem = pstack_pop(stack);
+        if (!current_problem) {
             continue;
         }
 
-        solution_t s = simplex_phaseII(current);
+        solution_t current_solution = simplex_phaseII(current_problem);
 
-        if (!s || solution_is_unbounded(s)) {
-            solution_free(&s);
-            problem_free(&current);
+        if (!current_solution || solution_is_unbounded(current_solution)) {
+            solution_free(&current_solution);
+            problem_free(&current_problem);
             continue;
         }
 
-        int32_t branch_var = problem_select_branch_var(s, problem_integers(current));
+        int32_t branch_var = problem_select_branch_var(problem_variables(p), problem_m(p), current_solution);
         if (branch_var == -2) {
-            solution_free(&s);
-            problem_free(&current);
+            solution_free(&current_solution);
+            problem_free(&current_problem);
             continue;
         }
 
         // Only integer variables
         if (branch_var == -1) {
             if (!best) {
-                best = s;
-            } else if (problem_is_max(current) ? solution_z(s) > solution_z(best) : solution_z(s) < solution_z(best)) {
+                best = current_solution;
+            } else if (problem_is_max(current_problem) ? solution_z(current_solution) > solution_z(best)
+                                                       : solution_z(current_solution) < solution_z(best)) {
                 solution_free(&best);
-                best = s;
+                best = current_solution;
             } else {
-                solution_free(&s);
+                solution_free(&current_solution);
             }
 
-            problem_free(&current);
+            problem_free(&current_problem);
             continue;
         }
 
         // Branch on non-integer variable
-        double bound = gsl_vector_get(solution_x(s), branch_var);
-        problem_t left = problem_branch(current, branch_var, bound, 'U');
-        problem_t right = problem_branch(current, branch_var, bound, 'L');
+        double bound = gsl_vector_get(solution_x(current_solution), branch_var);
+        problem_t left = problem_branch(current_problem, branch_var, bound, 'U');
+        problem_t right = problem_branch(current_problem, branch_var, bound, 'L');
 
         if (left) {
             pstack_push(stack, left);
@@ -224,8 +228,8 @@ solution_t branch_and_bound(const problem_t p) {
             pstack_push(stack, right);
         }
 
-        solution_free(&s);
-        problem_free(&current);
+        solution_free(&current_solution);
+        problem_free(&current_problem);
     }
 
     pstack_free(&stack);
