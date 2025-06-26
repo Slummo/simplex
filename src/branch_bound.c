@@ -11,14 +11,14 @@
 // Returns -2 on error, -1 if the solution contains only
 // integers or the index of the first non-integer
 // variable on success
-int32_t problem_select_branch_var(const solution_t s) {
-    if (!s) {
-        fprintf(stderr, "s is NULL in problem_select_branch_var\n");
+int32_t problem_select_branch_var(const solution_t s, const uint32_t* is_integer) {
+    if (!s || !is_integer) {
+        fprintf(stderr, "Some arguments are NULL in problem_select_branch_var\n");
         return -2;
     }
 
     for (uint32_t i = 0; i < solution_x(s)->size; i++) {
-        if (!solution_var_is_integer(s, i)) {
+        if (is_integer[i] && !solution_var_is_integer(s, i)) {
             return (int32_t)i;
         }
     }
@@ -154,7 +154,7 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
         }
     }
 
-    return problem_new(n2, m2, problem_is_max(p), c2, A2, b2, basis2, problem_pI_iter(p));
+    return problem_new(n2, m2, problem_is_max(p), c2, A2, b2, basis2, problem_pI_iter(p), problem_integers(p));
 }
 
 // Branch and bound method on linear problem p
@@ -189,7 +189,7 @@ solution_t branch_and_bound(const problem_t p) {
             continue;
         }
 
-        int32_t branch_var = problem_select_branch_var(s);
+        int32_t branch_var = problem_select_branch_var(s, problem_integers(current));
         if (branch_var == -2) {
             solution_free(&s);
             problem_free(&current);

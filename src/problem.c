@@ -10,20 +10,21 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 struct problem {
-    uint32_t n;         // Number of constraints
-    uint32_t m;         // Number of variables
-    uint32_t is_max;    // Boolean value to know if its a maximization problem
-    gsl_vector* c;      // Reduced costs (m)
-    gsl_matrix* A;      // Constraints matrix (n x m)
-    gsl_vector* b;      // RHS (n)
-    int32_t* basis;     // Indices of basic variables (size n)
-    int32_t* nonbasis;  // Indices of nonbasic variables (size m-n)
-    uint32_t pI_iter;   // Number of iterations to find base with PhaseI
+    uint32_t n;            // Number of constraints
+    uint32_t m;            // Number of variables
+    uint32_t is_max;       // Boolean value to know if its a maximization problem
+    gsl_vector* c;         // Reduced costs (m)
+    gsl_matrix* A;         // Constraints matrix (n x m)
+    gsl_vector* b;         // RHS (n)
+    int32_t* basis;        // Indices of basic variables (size n)
+    int32_t* nonbasis;     // Indices of nonbasic variables (size m-n)
+    uint32_t pI_iter;      // Number of iterations to find base with PhaseI
+    uint32_t* is_integer;  // Boolean values to know if a variable is integer
 };
 
 // Duplicates each mallocable param
 problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                      const gsl_vector* b, const int32_t* basis, uint32_t pI_iter) {
+                      const gsl_vector* b, const int32_t* basis, uint32_t pI_iter, const uint32_t* is_integer) {
     if (!c || !A || !b || !basis) {
         return NULL;
     }
@@ -36,106 +37,97 @@ problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector*
     p->n = n;
     p->m = m;
     p->is_max = is_max;
+
+    int32_t* used = NULL;
+
+    // Duplicate vectors and matrix
     p->c = vector_duplicate(c);
     if (!p->c) {
-        free(p);
-        return NULL;
-    }
-
-    if (!is_max) {
-        // Multiply by -1 to have the objective function
-        // in standard form
-        gsl_vector_scale(p->c, -1.0);
+        goto fail;
     }
 
     p->A = matrix_duplicate(A);
     if (!p->A) {
-        gsl_vector_free(p->c);
-        free(p);
-        return NULL;
+        goto fail;
     }
 
     p->b = vector_duplicate(b);
     if (!p->b) {
-        gsl_vector_free(p->c);
-        gsl_matrix_free(p->A);
-        free(p);
-        return NULL;
+        goto fail;
     }
 
-    // Duplicate basis
+    // Copy basis array
     p->basis = (int32_t*)malloc(sizeof(int32_t) * n);
     if (!p->basis) {
-        gsl_vector_free(p->c);
-        gsl_matrix_free(p->A);
-        gsl_vector_free(p->b);
-        free(p);
-        return NULL;
+        goto fail;
     }
-
     memcpy(p->basis, basis, sizeof(int32_t) * n);
 
-    p->nonbasis = (int32_t*)malloc(sizeof(int32_t) * (m - n));
-    if (!p->nonbasis) {
-        gsl_vector_free(p->c);
-        gsl_matrix_free(p->A);
-        gsl_vector_free(p->b);
-        free(p->basis);
-        free(p);
-        return NULL;
-    }
-
-    // Fill non-basis from remaining indices
-    uint32_t* used = calloc(m, sizeof(uint32_t));
+    // Allocate and fill nonbasis array
+    used = (int32_t*)calloc(m, sizeof(uint32_t));
     if (!used) {
-        gsl_vector_free(p->c);
-        gsl_matrix_free(p->A);
-        gsl_vector_free(p->b);
-        free(p->basis);
-        free(p->nonbasis);
-        free(p);
-        return NULL;
+        goto fail;
     }
 
     for (uint32_t i = 0; i < n; i++) {
         if (used[basis[i]]) {
             fprintf(stderr, "Duplicate basis index %u\n", basis[i]);
-            gsl_vector_free(p->c);
-            gsl_matrix_free(p->A);
-            gsl_vector_free(p->b);
-            free(p->basis);
-            free(p->nonbasis);
-            free(p);
-            free(used);
-            return NULL;
+            goto fail;
         }
         used[basis[i]] = 1;
     }
 
-    // Fill non-basis with those not used
-    uint32_t ni = 0;
+    p->nonbasis = malloc(sizeof(int32_t) * (m - n));
+    if (!p->nonbasis) {
+        goto fail;
+    }
+
+    uint32_t nonbasis_count = 0;
     for (uint32_t i = 0; i < m; i++) {
         if (!used[i]) {
-            p->nonbasis[ni++] = i;
+            p->nonbasis[nonbasis_count++] = i;
         }
     }
     free(used);
+    used = NULL;
 
     p->pI_iter = pI_iter;
 
+    // Handle integer flags if provided
+    if (is_integer) {
+        p->is_integer = (uint32_t*)malloc(sizeof(uint32_t) * m);
+        if (!p->is_integer) {
+            goto fail;
+        }
+        memcpy(p->is_integer, is_integer, sizeof(uint32_t) * m);
+    } else {
+        p->is_integer = NULL;
+    }
+
     return p;
+
+fail:
+    gsl_vector_free(p->c);
+    gsl_matrix_free(p->A);
+    gsl_vector_free(p->b);
+    free(p->basis);
+    free(used);
+    free(p->nonbasis);
+    free(p->is_integer);
+    problem_free(&p);
+    return NULL;
 }
 
 problem_t problem_new2(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                       const gsl_vector* b) {
-    uint32_t pI_iter = 0;
+                       const gsl_vector* b, const uint32_t* is_integer) {
     // Find a base with phaseI
+    uint32_t pI_iter = 0;
     int32_t* basis = simplex_phaseI(n, m, A, b, &pI_iter);
     if (!basis) {
         return NULL;
     }
 
-    return problem_new(n, m, is_max, c, A, b, basis, pI_iter);
+    return problem_new(n, m, is_max, c, A, b, basis, pI_iter, is_integer);
 }
 
 problem_t problem_duplicate(const problem_t p) {
@@ -143,7 +135,21 @@ problem_t problem_duplicate(const problem_t p) {
         return NULL;
     }
 
-    return problem_new(p->n, p->m, p->is_max, p->c, p->A, p->b, p->basis, p->pI_iter);
+    return problem_new(p->n, p->m, p->is_max, p->c, p->A, p->b, p->basis, p->pI_iter, p->is_integer);
+}
+
+uint32_t problem_is_milp(const problem_t p) {
+    if (!p) {
+        return 0;
+    }
+
+    for (uint32_t i = 0; i < p->m; i++) {
+        if (p->is_integer[i]) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 #define TERM_WIDTH 8
@@ -177,7 +183,7 @@ void problem_print(const problem_t p, const char* name) {
         return;
     }
 
-    printf("================== %s ==================\n", name);
+    printf("\n================== %s ==================\n", name);
     printf("%s z = ", p->is_max ? "max" : "min");
 
     // Objective function
@@ -266,6 +272,10 @@ int32_t* problem_nonbasis_mut(const problem_t p) {
 
 uint32_t problem_pI_iter(const problem_t p) {
     return p ? p->pI_iter : 0;
+}
+
+const uint32_t* problem_integers(const problem_t p) {
+    return p ? p->is_integer : NULL;
 }
 
 /* SETTERS */

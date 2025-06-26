@@ -125,7 +125,7 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
 
     // The phaseI problem doesn't need another PhaseI, it always
     // has a feasible base and goes straight to PhaseII
-    problem_t phaseI = problem_new(n, m + n, 1, c, A2, b2, artificial_indices, 0);
+    problem_t phaseI = problem_new(n, m + n, 1, c, A2, b2, artificial_indices, 0, NULL);
     if (!phaseI) {
         fprintf(stderr, "Failed to create phaseI problem\n");
         free(basis);
@@ -178,18 +178,26 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
 }
 
 // simplex_phaseII method on linear problem p
-solution_t simplex_phaseII(const problem_t problem) {
-    if (!problem) {
+solution_t simplex_phaseII(const problem_t p) {
+    if (!p) {
         fprintf(stderr, "problem is NULL in simplex_phaseII\n");
         return NULL;
     }
-    uint32_t n = problem_n(problem);
-    uint32_t m = problem_m(problem);
-    const gsl_matrix* A = problem_A(problem);
-    const gsl_vector* b = problem_b(problem);
-    const gsl_vector* c = problem_c(problem);
-    int32_t* basis = problem_basis_mut(problem);
-    int32_t* nonbasis = problem_nonbasis_mut(problem);
+
+    uint32_t n = problem_n(p);
+    uint32_t m = problem_m(p);
+    const gsl_matrix* A = problem_A(p);
+    const gsl_vector* b = problem_b(p);
+    gsl_vector* c = vector_duplicate(problem_c(p));
+    if (!c) {
+        return NULL;
+    }
+    if (!problem_is_max(p)) {
+        gsl_vector_scale(c, -1.0);
+    }
+
+    int32_t* basis = problem_basis_mut(p);
+    int32_t* nonbasis = problem_nonbasis_mut(p);
 
     gsl_matrix* Ab = gsl_matrix_alloc(n, n);
     gsl_matrix* Ab_inv = NULL;
@@ -311,7 +319,7 @@ solution_t simplex_phaseII(const problem_t problem) {
         pII_iter++;
     }
 
-    solution_t s = solution_new(m, gsl_vector_calloc(m), basis, unbounded, problem_pI_iter(problem), pII_iter);
+    solution_t s = solution_new(m, gsl_vector_calloc(m), basis, unbounded, problem_pI_iter(p), pII_iter);
 
     // Extract optimal solution and value
     if (s && !solution_is_unbounded(s)) {
@@ -324,6 +332,7 @@ solution_t simplex_phaseII(const problem_t problem) {
         solution_set_optimal_value(s, z);
     }
 
+    gsl_vector_free(c);
     gsl_vector_free(cb);
     gsl_vector_free(cn);
     gsl_vector_free(r);

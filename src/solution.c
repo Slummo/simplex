@@ -75,7 +75,7 @@ void solution_print(const solution_t s, const char* name) {
         return;
     }
 
-    printf("\n================== Solution for %s ==================\n", name);
+    printf("\n================== %s ==================\n", name);
     if (s->is_unbounded) {
         printf("infinite\n");
     } else {
