@@ -1,23 +1,24 @@
-# Compiler and flags
-CC := gcc
-CFLAGS := 
-COMPILE_FLAGS := -Wall -Wextra -Wshadow
-LIBS := -lc -lgsl -lgslcblas -lm
-
-DEBUG ?= 0
-
-ifeq ($(DEBUG),1)
-  BUILD_FLAGS := $(CFLAGS) $(COMPILE_FLAGS) $(LIBS) -g -O0
-else
-  BUILD_FLAGS := $(CFLAGS) $(COMPILE_FLAGS) $(LIBS) -O2
-endif
-
 # Directories
 SRC := src
+LIB := lib
 OBJ := obj
 BIN := bin
 MODELS := test_models
 MODEL_FILE_EXT := .txt
+
+# Compiler and flags
+CC := gcc
+CFLAGS := 
+COMPILE_FLAGS := -Wall -Werror -Wextra -Wshadow -I$(SRC) -I$(LIB) -L$(LIB)
+LIBS := -lc -lgsl -lgslcblas -lm -lrc
+
+DEBUG ?= 0
+
+ifeq ($(DEBUG),1)
+  BUILD_FLAGS := $(CFLAGS) $(COMPILE_FLAGS) -g -O0
+else
+  BUILD_FLAGS := $(CFLAGS) $(COMPILE_FLAGS) -O2
+endif
 
 # Target
 TARGET := zmax
@@ -34,12 +35,12 @@ all: $(BIN)/$(TARGET)
 # Link
 $(BIN)/$(TARGET): $(OBJS)
 	@mkdir -p $(BIN)
-	$(CC) $(BUILD_FLAGS) $^ -o $@
+	$(CC) $(BUILD_FLAGS) $^ $(LIBS) -o $@
 
 # Compile all .c files to .o files
 $(OBJ)/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(BUILD_FLAGS) -I$(SRC) -c $< -o $@
+	$(CC) $(BUILD_FLAGS) -c $< -o $@
 
 # Run release
 run: all

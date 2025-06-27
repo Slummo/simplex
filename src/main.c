@@ -1,3 +1,4 @@
+#include "rc.h"
 #include "utils.h"
 #include "simplex.h"
 #include "branch_bound.h"
@@ -90,6 +91,10 @@ fail:
     gsl_vector_free(*b);
     variables_arr_free(variables, *m);
     return 0;
+}
+
+void drop_int_ptr(void* ptr) {
+    free(ptr);
 }
 
 int main(int argc, char** args) {
