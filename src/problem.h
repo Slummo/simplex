@@ -9,40 +9,35 @@
 #include <gsl/gsl_matrix.h>
 #include <gsl/gsl_vector.h>
 
-typedef struct problem _problem, *problem_t;
+typedef struct problem problem_t;
 
-// Duplicates each mallocable param
-problem_t problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                      const gsl_vector* b, const int32_t* basis, uint32_t pI_iter, const variable_t* variables);
+problem_t* problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c_raw, const gsl_matrix* A_raw,
+                       const gsl_vector* b_raw, const int32_t* basis_raw, uint32_t pI_iter, variable_t** variables_raw);
 
-problem_t problem_new2(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                       const gsl_vector* b, const variable_t* variables);
+problem_t* problem_new2(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c_raw, const gsl_matrix* A_raw,
+                        const gsl_vector* b_raw, variable_t** variables_raw);
 
-problem_t problem_duplicate(const problem_t p);
+problem_t* problem_duplicate(const problem_t* p);
 
-uint32_t problem_is_milp(const problem_t p);
+uint32_t problem_is_milp(const problem_t* p);
 
 // Pretty print
-void problem_print(const problem_t p, const char* name);
+void problem_print(const problem_t* p, const char* name);
 
-void problem_free(problem_t* pp);
+void problem_free(problem_t** pp);
 
 /* GETTERS */
-uint32_t problem_n(const problem_t p);
-uint32_t problem_m(const problem_t p);
-uint32_t problem_is_max(const problem_t p);
-const gsl_vector* problem_c(const problem_t p);
-const gsl_matrix* problem_A(const problem_t p);
-const gsl_vector* problem_b(const problem_t p);
-const int32_t* problem_basis(const problem_t p);
-int32_t* problem_basis_mut(const problem_t p);
-const int32_t* problem_nonbasis(const problem_t p);
-int32_t* problem_nonbasis_mut(const problem_t p);
-uint32_t problem_pI_iter(const problem_t p);
-const variable_t* problem_variables(const problem_t p);
-variable_t problem_variable(const problem_t p, uint32_t i);
-
-/* SETTERS */
-void problem_set_basis_nonbasis(const problem_t p, int32_t* basis);
+uint32_t problem_n(const problem_t* p);
+uint32_t problem_m(const problem_t* p);
+uint32_t problem_is_max(const problem_t* p);
+const gsl_vector* problem_c(const problem_t* p);
+const gsl_matrix* problem_A(const problem_t* p);
+const gsl_vector* problem_b(const problem_t* p);
+const int32_t* problem_basis(const problem_t* p);
+int32_t* problem_basis_mut(const problem_t* p);
+const int32_t* problem_nonbasis(const problem_t* p);
+int32_t* problem_nonbasis_mut(const problem_t* p);
+uint32_t problem_pI_iter(const problem_t* p);
+const varr_t* problem_varr(const problem_t* p);
 
 #endif

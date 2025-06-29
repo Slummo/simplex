@@ -7,8 +7,8 @@
 
 #include <gsl/gsl_errno.h>
 
-int read_model(FILE* stream, uint32_t* n, uint32_t* m, uint32_t* is_max, gsl_vector** c, gsl_matrix** A, gsl_vector** b,
-               variable_t** variables) {
+int read_model(FILE* stream, uint32_t* n, uint32_t* m, uint32_t* is_max, gsl_vector** c_raw, gsl_matrix** A_raw,
+               gsl_vector** b_raw, variable_t*** variables_raw) {
     if (stream == stdin) {
         printf("n: ");
     }
@@ -35,24 +35,24 @@ int read_model(FILE* stream, uint32_t* n, uint32_t* m, uint32_t* is_max, gsl_vec
         goto fail;
     }
 
-    *c = vector_read(stream, "c", *m);
-    if (!*c) {
+    *c_raw = vector_read(stream, "c_raw", *m);
+    if (!*c_raw) {
         goto fail;
     }
 
-    *A = matrix_read(stream, "A", *n, *m);
-    if (!*A) {
+    *A_raw = matrix_read(stream, "A_raw", *n, *m);
+    if (!*A_raw) {
         goto fail;
     }
 
-    *b = vector_read(stream, "b", *n);
-    if (!*b) {
+    *b_raw = vector_read(stream, "b_raw", *n);
+    if (!*b_raw) {
         goto fail;
     }
 
-    *variables = (variable_t*)malloc(sizeof(variable_t) * *m);
-    if (!*variables) {
-        fprintf(stderr, "Failed to allocate variables\n");
+    *variables_raw = (variable_t**)malloc(sizeof(variable_t**) * *m);
+    if (!*variables_raw) {
+        fprintf(stderr, "Failed to allocate variables_raw\n");
         goto fail;
     }
 
@@ -68,33 +68,38 @@ int read_model(FILE* stream, uint32_t* n, uint32_t* m, uint32_t* is_max, gsl_vec
         } else {
             switch (type) {
                 case 0: {
-                    (*variables)[i] = variable_new_real_positive(10e9);
+                    (*variables_raw)[i] = variable_new_real_positive(10e9);
                     break;
                 }
                 case 1: {
-                    (*variables)[i] = variable_new_integer_positive(10e9);
+                    (*variables_raw)[i] = variable_new_integer_positive(10e9);
                     break;
                 }
                 case 2: {
-                    (*variables)[i] = variable_new_binary();
+                    (*variables_raw)[i] = variable_new_binary();
                     break;
                 }
             }
         }
     }
 
+    if (stream != stdin) {
+        fclose(stream);
+    }
+
     return 1;
 
 fail:
-    gsl_vector_free(*c);
-    gsl_matrix_free(*A);
-    gsl_vector_free(*b);
-    variables_arr_free(variables, *m);
+    gsl_vector_free(*c_raw);
+    gsl_matrix_free(*A_raw);
+    gsl_vector_free(*b_raw);
+    for (uint32_t i = 0; i < *m; i++) {
+        variable_free(&(*variables_raw)[i]);
+    }
+    if (stream != stdin) {
+        fclose(stream);
+    }
     return 0;
-}
-
-void drop_int_ptr(void* ptr) {
-    free(ptr);
 }
 
 int main(int argc, char** args) {
@@ -103,51 +108,42 @@ int main(int argc, char** args) {
         return EXIT_FAILURE;
     }
 
-    FILE* stream = NULL;
-    uint32_t read_from_file = argc == 2;
-    if (read_from_file) {
-        stream = fopen(args[1], "r");
-        if (!stream) {
-            perror("Failed to open file");
-            return EXIT_FAILURE;
-        }
-    } else {
-        stream = stdin;
-    }
-
     gsl_set_error_handler_off();
+
+    FILE* stream = argc == 2 ? fopen(args[1], "r") : stdin;
+    if (!stream) {
+        perror("Failed to determine stream");
+        return EXIT_FAILURE;
+    }
 
     uint32_t n = 0;
     uint32_t m = 0;
     uint32_t is_max = 0;
-    gsl_vector* c = NULL;
-    gsl_matrix* A = NULL;
-    gsl_vector* b = NULL;
-    variable_t* variables = NULL;
-    problem_t p = NULL;
-    solution_t s = NULL;
+    gsl_vector* c_raw = NULL;
+    gsl_matrix* A_raw = NULL;
+    gsl_vector* b_raw = NULL;
+    variable_t** variables_raw = NULL;
+    problem_t* p = NULL;
+    solution_t* s = NULL;
 
-    if (!read_model(stream, &n, &m, &is_max, &c, &A, &b, &variables)) {
+    if (!read_model(stream, &n, &m, &is_max, &c_raw, &A_raw, &b_raw, &variables_raw)) {
         return EXIT_FAILURE;
     }
 
-    if (read_from_file) {
-        fclose(stream);
-    }
-
-    p = problem_new2(n, m, is_max, c, A, b, variables);
+    p = problem_new2(n, m, is_max, c_raw, A_raw, b_raw, variables_raw);
     if (!p) {
         fprintf(stderr, "Failed to create problem\n");
-        gsl_vector_free(c);
-        gsl_matrix_free(A);
-        gsl_vector_free(b);
-        variables_arr_free(&variables, m);
+        gsl_vector_free(c_raw);
+        gsl_matrix_free(A_raw);
+        gsl_vector_free(b_raw);
+        for (uint32_t i = 0; i < m; i++) {
+            variable_free(&variables_raw[i]);
+        }
         return EXIT_FAILURE;
     }
     problem_print(p, "Problem");
 
     char* solver_name = NULL;
-    int res = EXIT_SUCCESS;
 
     if (problem_is_milp(p)) {
         solver_name = "Branch and bound";
@@ -157,16 +153,13 @@ int main(int argc, char** args) {
         s = simplex_phaseII(p);
     }
 
+    int res = EXIT_SUCCESS;
     if (!s) {
         fprintf(stderr, "Failed to solve with %s\n", solver_name);
         res = EXIT_FAILURE;
     }
     solution_print(s, "Solution");
 
-    gsl_vector_free(c);
-    gsl_matrix_free(A);
-    gsl_vector_free(b);
-    variables_arr_free(&variables, m);
     problem_free(&p);
     solution_free(&s);
 

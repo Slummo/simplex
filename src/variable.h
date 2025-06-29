@@ -3,23 +3,35 @@
 
 #include <stdint.h>
 
+/* VARIABLE */
 typedef enum { VAR_REAL, VAR_INTEGER, VAR_BINARY, VAR_ERR } variable_type_t;
 const char* variable_type_to_str(variable_type_t vt);
 
-typedef struct variable _variable, *variable_t;
+typedef struct variable variable_t;
 
-variable_t variable_new(double lb, double ub, variable_type_t type);
-variable_t variable_new_real_positive(double ub);
-variable_t variable_new_integer_positive(double ub);
-variable_t variable_new_binary();
+variable_t* variable_new(double lb, double ub, variable_type_t type);
+variable_t* variable_new_real_positive(double ub);
+variable_t* variable_new_integer_positive(double ub);
+variable_t* variable_new_binary();
 
-void variable_print(const variable_t v);
-void variable_free(variable_t* vp);
-void variables_arr_free(variable_t** variables_arr_ptr, uint32_t var_num);
+variable_t* variable_duplicate(const variable_t* v);
+void variable_print(const variable_t* v);
+void variable_free(variable_t** vp);
 
-/* GETTERS */
-double variable_lb(const variable_t v);
-double variable_ub(const variable_t v);
-uint32_t variable_is_integer(const variable_t v);
+/* Getters */
+double variable_lb(const variable_t* v);
+double variable_ub(const variable_t* v);
+uint32_t variable_is_integer(const variable_t* v);
+
+/* VARR */
+// Wrapper for an array of variable_t* and its size
+typedef struct varr varr_t;
+
+varr_t* varr_new(variable_t** varr_raw, uint32_t var_num);
+const variable_t* varr_get(const varr_t* varr, uint32_t i);
+const variable_t** varr_data(const varr_t* varr);
+uint32_t varr_num(const varr_t* varr);
+void varr_free(varr_t** varr_ptr);
+void varr_drop(void* data);
 
 #endif

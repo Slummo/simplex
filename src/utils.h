@@ -1,6 +1,8 @@
 #ifndef UTILS_H
 #define UTILS_H
 
+#include "rc.h"
+#include "variable.h"
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
 

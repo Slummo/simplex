@@ -79,15 +79,20 @@ gsl_matrix* matrix_duplicate(const gsl_matrix* original) {
 
 gsl_matrix* inverse(const gsl_matrix* base, size_t size) {
     gsl_matrix* inverse = gsl_matrix_alloc(size, size);
-    gsl_permutation* p = gsl_permutation_alloc(size);
-    if (!inverse || !p) {
+    if (!inverse) {
         return NULL;
+    }
+
+    gsl_permutation* p = gsl_permutation_alloc(size);
+    if (!p) {
+        gsl_matrix_free(inverse);
     }
 
     int signum;
     gsl_matrix_memcpy(inverse, base);
     gsl_linalg_LU_decomp(inverse, p, &signum);
     gsl_linalg_LU_invert(inverse, p, inverse);
+
     gsl_permutation_free(p);
 
     return inverse;

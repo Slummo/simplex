@@ -11,15 +11,14 @@
 // Returns -2 on error, -1 if the solution contains only
 // integers or the index of the first non-integer
 // variable on success
-int32_t problem_select_branch_var(const variable_t* variables, uint32_t variables_num,
-                                  const solution_t current_solution) {
-    if (!variables || !current_solution) {
+int32_t problem_select_branch_var(const varr_t* varr, uint32_t variables_num, const solution_t* current_solution) {
+    if (!varr || !current_solution) {
         fprintf(stderr, "Some arguments are NULL in problem_select_branch_var\n");
         return -2;
     }
 
     for (uint32_t i = 0; i < variables_num; i++) {
-        if (variable_is_integer(variables[i]) && !solution_var_is_integer(current_solution, i)) {
+        if (variable_is_integer(varr_get(varr, i)) && !solution_var_is_integer(current_solution, i)) {
             return (int32_t)i;
         }
     }
@@ -30,7 +29,7 @@ int32_t problem_select_branch_var(const variable_t* variables, uint32_t variable
 // Creates a duplicate of p with an added bound on the variable
 // with index branch_var_index.
 // Direction can either be 'L' (Lower bound) or 'U' (Upper bound)
-problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bound, char direction) {
+problem_t* problem_branch(const problem_t* p, int32_t branch_var_index, double bound, char direction) {
     if (!p || (direction != 'U' && direction != 'L')) {
         fprintf(stderr, "Error in problem_branch\n");
         return NULL;
@@ -43,41 +42,55 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
     const gsl_vector* b = problem_b(p);
     const gsl_matrix* A = problem_A(p);
     const int32_t* basis = problem_basis(p);
-    const variable_t* variables = problem_variables(p);
+    const varr_t* varr = problem_varr(p);
 
     uint32_t n2 = n + 1;  // +1 for the new constraint
     uint32_t m2 = m + 1;  // +1 for the new slack/surplus variable
 
-    gsl_vector* c2 = gsl_vector_alloc(m2);
+    gsl_vector* c2 = NULL;
+    gsl_matrix* A2 = NULL;
+    gsl_vector* b2 = NULL;
+    variable_t** variables2 = NULL;
+    int32_t* basis2 = NULL;
+
+    c2 = gsl_vector_alloc(m2);
     if (!c2) {
-        return NULL;
+        goto fail;
     }
 
-    gsl_vector* b2 = gsl_vector_alloc(n2);
-    if (!b2) {
-        gsl_vector_free(c2);
-        return NULL;
-    }
-
-    gsl_matrix* A2 = gsl_matrix_alloc(n2, m2);
+    A2 = gsl_matrix_alloc(n2, m2);
     if (!A2) {
-        gsl_vector_free(c2);
-        gsl_vector_free(b2);
-        return NULL;
+        goto fail;
+    }
+
+    b2 = gsl_vector_alloc(n2);
+    if (!b2) {
+        goto fail;
+    }
+
+    variables2 = (variable_t**)malloc(sizeof(variable_t**) * m2);
+    if (!variables2) {
+        goto fail;
     }
 
     // Direction == 'U' => x[branch_var_index] <= floor(bound)
     // Direction == 'L' => x[branch_var_index] >= ceil(bound)
     bound = direction == 'U' ? floor(bound) : ceil(bound);
 
-    // Copy c adding new value
+    // Copy c and variables2 adding new values
     for (uint32_t j = 0; j < m2; j++) {
         if (j < m) {
             // Copy old c value
             gsl_vector_set(c2, j, gsl_vector_get(c, j));
+
+            // Copy old variable
+            variables2[j] = variable_duplicate(varr_get(varr, j));
         } else {
             // Set 0 for new slack/surplus variable
             gsl_vector_set(c2, j, 0.0);
+
+            // Add new slack/surplus variable
+            variables2[j] = variable_new_real_positive(10e9);
         }
     }
 
@@ -116,8 +129,6 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
         }
     }
 
-    int32_t* basis2 = NULL;
-
     // Check if original base is still feasible
     uint32_t og_base_feasible = 1;
     for (uint32_t i = 0; i < n; i++) {
@@ -132,10 +143,7 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
         // Copy the base adding the new slack/surplus variable
         basis2 = (int32_t*)malloc(sizeof(int32_t) * n2);
         if (!basis2) {
-            gsl_vector_free(c2);
-            gsl_vector_free(b2);
-            gsl_matrix_free(A2);
-            return NULL;
+            goto fail;
         }
 
         for (uint32_t i = 0; i < n; i++) {
@@ -147,26 +155,33 @@ problem_t problem_branch(const problem_t p, int32_t branch_var_index, double bou
     } else {
         // Find a new feasible base
         uint32_t pI_iters = 0;
-        basis2 = simplex_phaseI(n2, m2, A2, b2, variables, &pI_iters);
+        basis2 = simplex_phaseI(n2, m2, A2, b2, variables2, &pI_iters);
         if (!basis2) {
             fprintf(stderr, "Failed to find basis with Phase1 in problem_branch\n");
-            gsl_vector_free(c2);
-            gsl_vector_free(b2);
-            gsl_matrix_free(A2);
-            return NULL;
+            goto fail;
         }
     }
 
-    return problem_new(n2, m2, is_max, c2, A2, b2, basis2, problem_pI_iter(p), variables);
+    return problem_new(n2, m2, is_max, c2, A2, b2, basis2, problem_pI_iter(p), variables2);
+
+fail:
+    gsl_vector_free(c2);
+    gsl_vector_free(b2);
+    gsl_matrix_free(A2);
+    for (uint32_t i = 0; i < m2; i++) {
+        variable_free(&variables2[i]);
+    }
+    free(basis2);
+    return NULL;
 }
 
 // Branch and bound method on linear problem p
-solution_t branch_and_bound(const problem_t p) {
+solution_t* branch_and_bound(const problem_t* p) {
     if (!p) {
         return NULL;
     }
 
-    pstack_t stack = pstack_new();
+    pstack_t* stack = pstack_new();
     if (!stack) {
         return NULL;
     }
@@ -176,15 +191,15 @@ solution_t branch_and_bound(const problem_t p) {
         return NULL;
     }
 
-    solution_t best = NULL;
+    solution_t* best = NULL;
 
     while (!pstack_empty(stack)) {
-        problem_t current_problem = pstack_pop(stack);
+        problem_t* current_problem = pstack_pop(stack);
         if (!current_problem) {
             continue;
         }
 
-        solution_t current_solution = simplex_phaseII(current_problem);
+        solution_t* current_solution = simplex_phaseII(current_problem);
 
         if (!current_solution || solution_is_unbounded(current_solution)) {
             solution_free(&current_solution);
@@ -192,7 +207,7 @@ solution_t branch_and_bound(const problem_t p) {
             continue;
         }
 
-        int32_t branch_var = problem_select_branch_var(problem_variables(p), problem_m(p), current_solution);
+        int32_t branch_var = problem_select_branch_var(problem_varr(p), problem_m(p), current_solution);
         if (branch_var == -2) {
             solution_free(&current_solution);
             problem_free(&current_problem);
@@ -217,8 +232,8 @@ solution_t branch_and_bound(const problem_t p) {
 
         // Branch on non-integer variable
         double bound = gsl_vector_get(solution_x(current_solution), branch_var);
-        problem_t left = problem_branch(current_problem, branch_var, bound, 'U');
-        problem_t right = problem_branch(current_problem, branch_var, bound, 'L');
+        problem_t* left = problem_branch(current_problem, branch_var, bound, 'U');
+        problem_t* right = problem_branch(current_problem, branch_var, bound, 'L');
 
         if (left) {
             pstack_push(stack, left);

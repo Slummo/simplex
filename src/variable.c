@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* VARIABLE */
+
 const char* variable_type_to_str(variable_type_t vt) {
     switch (vt) {
         case VAR_REAL: {
@@ -28,8 +30,8 @@ struct variable {
     variable_type_t type;
 };
 
-variable_t variable_new(double lb, double ub, variable_type_t type) {
-    variable_t v = (variable_t)malloc(sizeof(_variable));
+variable_t* variable_new(double lb, double ub, variable_type_t type) {
+    variable_t* v = (variable_t*)malloc(sizeof(variable_t));
     if (!v) {
         return NULL;
     }
@@ -41,19 +43,23 @@ variable_t variable_new(double lb, double ub, variable_type_t type) {
     return v;
 }
 
-variable_t variable_new_real_positive(double ub) {
+variable_t* variable_new_real_positive(double ub) {
     return variable_new(0, ub, VAR_REAL);
 }
 
-variable_t variable_new_integer_positive(double ub) {
+variable_t* variable_new_integer_positive(double ub) {
     return variable_new(0, ub, VAR_INTEGER);
 }
 
-variable_t variable_new_binary() {
+variable_t* variable_new_binary() {
     return variable_new(0, 1, VAR_BINARY);
 }
 
-void variable_print(const variable_t v) {
+variable_t* variable_duplicate(const variable_t* v) {
+    return (variable_t*)v;
+}
+
+void variable_print(const variable_t* v) {
     if (!v) {
         return;
     }
@@ -61,7 +67,7 @@ void variable_print(const variable_t v) {
     printf("Variable[lb: %.3lf, ub: %.3lf, type: %s]\n", v->lb, v->ub, variable_type_to_str(v->type));
 }
 
-void variable_free(variable_t* vp) {
+void variable_free(variable_t** vp) {
     if (*vp || !*vp) {
         return;
     }
@@ -70,28 +76,67 @@ void variable_free(variable_t* vp) {
     *vp = NULL;
 }
 
-void variables_arr_free(variable_t** variables_arr_ptr, uint32_t var_num) {
-    if (!variables_arr_ptr || !*variables_arr_ptr) {
-        return;
-    }
+/* Getters */
 
-    for (uint32_t i = 0; i < var_num; i++) {
-        variable_free(&(*variables_arr_ptr)[i]);
-    }
-    free(*variables_arr_ptr);
-    *variables_arr_ptr = NULL;
-}
-
-/* GETTERS */
-
-double variable_lb(const variable_t v) {
+double variable_lb(const variable_t* v) {
     return v ? v->lb : -1.0;
 }
 
-double variable_ub(const variable_t v) {
+double variable_ub(const variable_t* v) {
     return v ? v->ub : -1.0;
 }
 
-uint32_t variable_is_integer(const variable_t v) {
+uint32_t variable_is_integer(const variable_t* v) {
     return v ? v->type == VAR_INTEGER : 0;
+}
+
+/* VARR */
+
+struct varr {
+    variable_t** data;
+    uint32_t n;
+};
+
+varr_t* varr_new(variable_t** varr_raw, uint32_t var_num) {
+    varr_t* varr = (varr_t*)malloc(sizeof(varr_t) * var_num);
+    if (!varr) {
+        return NULL;
+    }
+
+    varr->data = varr_raw;
+    varr->n = var_num;
+
+    return varr;
+}
+
+const variable_t* varr_get(const varr_t* varr, uint32_t i) {
+    return varr ? varr->data[i] : NULL;
+}
+
+const variable_t** varr_data(const varr_t* varr) {
+    return varr ? (const variable_t**)varr->data : NULL;
+}
+
+uint32_t varr_num(const varr_t* varr) {
+    return varr ? varr->n : 0;
+}
+
+void varr_free(varr_t** varr_ptr) {
+    if (!varr_ptr || !*varr_ptr) {
+        return;
+    }
+
+    free((*varr_ptr)->data);
+    free(*varr_ptr);
+    *varr_ptr = NULL;
+}
+
+void varr_drop(void* data) {
+    if (!data) {
+        return;
+    }
+
+    varr_t* varr = (varr_t*)data;
+    free(varr->data);
+    free(varr);
 }

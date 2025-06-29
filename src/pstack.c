@@ -4,31 +4,31 @@
 
 /* PLIST */
 struct pnode {
-    problem_t p;
-    plist_t next;
+    problem_t* p;
+    pnode_t* next;
 };
 
-plist_t plist_new(const problem_t problem) {
+pnode_t* pnode_new(const problem_t* problem) {
     if (!problem) {
         return NULL;
     }
 
-    plist_t l = (plist_t)malloc(sizeof(_pnode));
-    if (!l) {
+    pnode_t* n = (pnode_t*)malloc(sizeof(pnode_t));
+    if (!n) {
         return NULL;
     }
 
-    l->p = problem_duplicate(problem);
-    l->next = NULL;
+    n->p = problem_duplicate(problem);
+    n->next = NULL;
 
-    return l;
+    return n;
 }
 
-uint32_t plist_empty(const plist_t l) {
+uint32_t plist_empty(const pnode_t* l) {
     return !l;
 }
 
-uint32_t plist_insert(plist_t* lp, plist_t n) {
+uint32_t plist_insert(pnode_t** lp, pnode_t* n) {
     if (!lp) {
         return 0;
     }
@@ -43,25 +43,25 @@ uint32_t plist_insert(plist_t* lp, plist_t n) {
     return 1;
 }
 
-plist_t plist_remove(plist_t* lp) {
+pnode_t* plist_remove(pnode_t** lp) {
     if (!lp || plist_empty(*lp)) {
         return NULL;
     }
 
-    plist_t removed = *lp;
+    pnode_t* removed = *lp;
     *lp = (*lp)->next;
     removed->next = NULL;
 
     return removed;
 }
 
-void plist_free(plist_t* lp) {
+void plist_free(pnode_t** lp) {
     if (!lp || !*lp) {
         return;
     }
 
     while (*lp) {
-        plist_t next = (*lp)->next;
+        pnode_t* next = (*lp)->next;
         problem_free(&(*lp)->p);
         free(*lp);
         *lp = next;
@@ -70,12 +70,12 @@ void plist_free(plist_t* lp) {
 
 /* PSTACK */
 struct pstack {
-    plist_t top;
+    pnode_t* top;
     uint32_t size;
 };
 
-pstack_t pstack_new() {
-    pstack_t s = (pstack_t)malloc(sizeof(_pstack));
+pstack_t* pstack_new() {
+    pstack_t* s = (pstack_t*)malloc(sizeof(pstack_t));
     if (!s) {
         return NULL;
     }
@@ -86,16 +86,16 @@ pstack_t pstack_new() {
     return s;
 }
 
-uint32_t pstack_empty(const pstack_t s) {
+uint32_t pstack_empty(const pstack_t* s) {
     return !s || plist_empty(s->top);
 }
 
-uint32_t pstack_push(const pstack_t s, const problem_t problem) {
+uint32_t pstack_push(pstack_t* s, const problem_t* problem) {
     if (!s) {
         return 0;
     }
 
-    plist_t n = plist_new(problem);
+    pnode_t* n = pnode_new(problem);
     if (!n) {
         return 0;
     }
@@ -109,17 +109,17 @@ uint32_t pstack_push(const pstack_t s, const problem_t problem) {
     return 0;
 }
 
-problem_t pstack_pop(const pstack_t s) {
+problem_t* pstack_pop(pstack_t* s) {
     if (!s) {
         return NULL;
     }
 
-    plist_t removed = plist_remove(&s->top);
+    pnode_t* removed = plist_remove(&s->top);
     if (!removed) {
         return NULL;
     }
 
-    problem_t p = removed->p;
+    problem_t* p = removed->p;
     free(removed);
 
     s->size--;
@@ -127,7 +127,7 @@ problem_t pstack_pop(const pstack_t s) {
     return p;
 }
 
-uint32_t pstack_size(const pstack_t s) {
+uint32_t pstack_size(const pstack_t* s) {
     if (!s || pstack_empty(s)) {
         return 0;
     } else {
@@ -135,7 +135,7 @@ uint32_t pstack_size(const pstack_t s) {
     }
 }
 
-void pstack_free(pstack_t* sp) {
+void pstack_free(pstack_t** sp) {
     if (!sp) {
         return;
     }

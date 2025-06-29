@@ -6,19 +6,19 @@
 #include <gsl/gsl_linalg.h>
 
 // Find problem basis indices with Phase 1 method
-int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_vector* b, const variable_t* variables,
+int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_vector* b, variable_t** variables,
                         uint32_t* pI_iter_ptr) {
-    if (!A || !b || !pI_iter_ptr) {
+    if (!A || !b || !variables || !pI_iter_ptr) {
         return NULL;
     }
 
     int32_t* basis = NULL;
     gsl_vector* c = NULL;
-    int32_t* artificial_indices = NULL;
+    int32_t* artificial = NULL;
     gsl_matrix* A2 = NULL;
     gsl_vector* b2 = NULL;
-    variable_t* variables2 = NULL;
-    problem_t phaseI = NULL;
+    variable_t** variables2 = NULL;
+    problem_t* phaseI = NULL;
 
     // Try first to identify an identity matrix
     basis = (int32_t*)malloc(sizeof(int32_t) * n);
@@ -84,15 +84,15 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
         gsl_vector_set(c, i, i < m ? 0.0 : -1.0);
     }
 
-    artificial_indices = (int32_t*)malloc(sizeof(int32_t) * n);
-    if (!artificial_indices) {
+    artificial = (int32_t*)malloc(sizeof(int32_t) * n);
+    if (!artificial) {
         fprintf(stderr, "Failed to allocate array for artificial indices for PhaseI\n");
         goto fail;
     }
 
     // Set array
     for (uint32_t i = 0; i < n; i++) {
-        artificial_indices[i] = (int32_t)(m + i);
+        artificial[i] = (int32_t)(m + i);
     }
 
     // Augmented matrix with m + n columns (one column for each artificial variable)
@@ -124,28 +124,32 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
         goto fail;
     }
 
-    variables2 = (variable_t*)malloc(sizeof(variable_t) * m);
+    variables2 = (variable_t**)malloc(sizeof(variable_t**) * (m + n));
     if (!variables2) {
         fprintf(stderr, "Failed to duplicate variables for PhaseI\n");
         goto fail;
     }
 
-    for (uint32_t i = 0; i < m; i++) {
-        variables2[i] = variables[i];
+    for (uint32_t i = 0; i < (m + n); i++) {
+        if (i < m) {
+            variables2[i] = variable_duplicate(variables[i]);
+        } else {
+            variables2[i] = variable_new_real_positive(10e9);
+        }
     }
 
     // The PhaseI problem doesn't need another PhaseI, it always
     // has a feasible base and goes straight to PhaseII
-    phaseI = problem_new(n, m + n, 1, c, A2, b2, artificial_indices, 0, variables2);
+    phaseI = problem_new(n, m + n, 1, c, A2, b2, artificial, 0, variables2);
     if (!phaseI) {
         fprintf(stderr, "Failed to create PhaseI problem\n");
-        goto fail;
+        goto fail2;
     }
 
-    solution_t pII_s = simplex_phaseII(phaseI);
+    solution_t* pII_s = simplex_phaseII(phaseI);
     if (!pII_s) {
         fprintf(stderr, "Failed to create solution for PhaseI problem\n");
-        goto fail;
+        goto fail2;
     }
 
     // No feasible base for original problem
@@ -170,11 +174,6 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
 
     *pI_iter_ptr = solution_pII_iterations(pII_s);
 
-    gsl_vector_free(c);
-    free(artificial_indices);
-    gsl_matrix_free(A2);
-    gsl_vector_free(b2);
-    variables_arr_free(&variables2, m);
     problem_free(&phaseI);
     solution_free(&pII_s);
 
@@ -183,16 +182,22 @@ int32_t* simplex_phaseI(uint32_t n, uint32_t m, const gsl_matrix* A, const gsl_v
 fail:
     free(basis);
     gsl_vector_free(c);
-    free(artificial_indices);
+    free(artificial);
     gsl_matrix_free(A2);
     gsl_vector_free(b2);
-    variables_arr_free(&variables2, m);
+    for (uint32_t i = 0; i < m; i++) {
+        variable_free(&variables2[i]);
+    }
+    return NULL;
+
+fail2:
+    free(basis);
     problem_free(&phaseI);
     return NULL;
 }
 
 // simplex_phaseII method on linear problem p
-solution_t simplex_phaseII(const problem_t p) {
+solution_t* simplex_phaseII(const problem_t* p) {
     if (!p) {
         fprintf(stderr, "problem is NULL in simplex_phaseII\n");
         return NULL;
@@ -333,7 +338,7 @@ solution_t simplex_phaseII(const problem_t p) {
         pII_iter++;
     }
 
-    solution_t s = solution_new(m, gsl_vector_calloc(m), basis, unbounded, problem_pI_iter(p), pII_iter);
+    solution_t* s = solution_new(m, gsl_vector_calloc(m), basis, unbounded, problem_pI_iter(p), pII_iter);
 
     // Extract optimal solution and value
     if (s && !solution_is_unbounded(s)) {

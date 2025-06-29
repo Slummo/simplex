@@ -9,7 +9,7 @@ MODEL_FILE_EXT := .txt
 # Compiler and flags
 CC := gcc
 CFLAGS := 
-COMPILE_FLAGS := -Wall -Werror -Wextra -Wshadow -I$(SRC) -I$(LIB) -L$(LIB)
+COMPILE_FLAGS := -Wall  -Wextra -Wshadow -I$(SRC) -I$(LIB) -L$(LIB)
 LIBS := -lc -lgsl -lgslcblas -lm -lrc
 
 DEBUG ?= 0

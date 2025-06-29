@@ -14,14 +14,13 @@ struct solution {
     uint32_t pII_iter;      // Number of iterations of PhaseII to find solution
 };
 
-// Duplicates each mallocable param
-solution_t solution_new(uint32_t n, const gsl_vector* x, const int32_t* basis, uint32_t is_unbounded, uint32_t pI_iter,
-                        uint32_t pII_iter) {
+solution_t* solution_new(uint32_t n, const gsl_vector* x, const int32_t* basis, uint32_t is_unbounded, uint32_t pI_iter,
+                         uint32_t pII_iter) {
     if (!x || !basis) {
         return NULL;
     }
 
-    solution_t s = (solution_t)malloc(sizeof(_solution));
+    solution_t* s = (solution_t*)malloc(sizeof(solution_t));
     if (!s) {
         return NULL;
     }
@@ -49,7 +48,7 @@ solution_t solution_new(uint32_t n, const gsl_vector* x, const int32_t* basis, u
     return s;
 }
 
-solution_t solution_duplicate(const solution_t s) {
+solution_t* solution_duplicate(const solution_t* s) {
     if (!s) {
         return NULL;
     }
@@ -58,7 +57,7 @@ solution_t solution_duplicate(const solution_t s) {
 }
 
 // Checks if the i-th component of the solution is an integer
-uint32_t solution_var_is_integer(const solution_t s, uint32_t i) {
+uint32_t solution_var_is_integer(const solution_t* s, uint32_t i) {
     if (!s) {
         fprintf(stderr, "s is NULL in solution_var_is_integer\n");
         return 0;
@@ -70,7 +69,7 @@ uint32_t solution_var_is_integer(const solution_t s, uint32_t i) {
 }
 
 // Pretty print
-void solution_print(const solution_t s, const char* name) {
+void solution_print(const solution_t* s, const char* name) {
     if (!s) {
         return;
     }
@@ -94,7 +93,7 @@ void solution_print(const solution_t s, const char* name) {
     }
 }
 
-void solution_free(solution_t* sp) {
+void solution_free(solution_t** sp) {
     if (!sp || !*sp) {
         return;
     }
@@ -107,37 +106,37 @@ void solution_free(solution_t* sp) {
 
 /* GETTERS */
 
-const gsl_vector* solution_x(const solution_t s) {
+const gsl_vector* solution_x(const solution_t* s) {
     return s ? s->x : NULL;
 }
 
-gsl_vector* solution_x_mut(const solution_t s) {
+gsl_vector* solution_x_mut(const solution_t* s) {
     return s ? s->x : NULL;
 }
 
-double solution_z(const solution_t s) {
+double solution_z(const solution_t* s) {
     return s ? s->z : 0.0;
 }
 
-const int32_t* solution_basis(const solution_t s) {
+const int32_t* solution_basis(const solution_t* s) {
     return s ? s->basis : NULL;
 }
 
-uint32_t solution_is_unbounded(const solution_t s) {
+uint32_t solution_is_unbounded(const solution_t* s) {
     return s ? s->is_unbounded : 0;
 }
 
-uint32_t solution_pI_iterations(const solution_t s) {
+uint32_t solution_pI_iterations(const solution_t* s) {
     return s ? s->pI_iter : 0;
 }
 
-uint32_t solution_pII_iterations(const solution_t s) {
+uint32_t solution_pII_iterations(const solution_t* s) {
     return s ? s->pII_iter : 0;
 }
 
 /* SETTERS */
 
-void solution_set_optimal_value(const solution_t s, double optimal_value) {
+void solution_set_optimal_value(solution_t* s, double optimal_value) {
     if (!s) {
         return;
     }
