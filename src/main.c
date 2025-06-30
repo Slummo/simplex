@@ -96,6 +96,7 @@ fail:
     for (uint32_t i = 0; i < *m; i++) {
         variable_free(&(*variables_raw)[i]);
     }
+    free(*variables_raw);
     if (stream != stdin) {
         fclose(stream);
     }
@@ -108,7 +109,7 @@ int main(int argc, char** args) {
         return EXIT_FAILURE;
     }
 
-    gsl_set_error_handler_off();
+    // gsl_set_error_handler_off();
 
     FILE* stream = argc == 2 ? fopen(args[1], "r") : stdin;
     if (!stream) {
@@ -133,12 +134,6 @@ int main(int argc, char** args) {
     p = problem_new2(n, m, is_max, c_raw, A_raw, b_raw, variables_raw);
     if (!p) {
         fprintf(stderr, "Failed to create problem\n");
-        gsl_vector_free(c_raw);
-        gsl_matrix_free(A_raw);
-        gsl_vector_free(b_raw);
-        for (uint32_t i = 0; i < m; i++) {
-            variable_free(&variables_raw[i]);
-        }
         return EXIT_FAILURE;
     }
     problem_print(p, "Problem");

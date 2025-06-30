@@ -14,13 +14,13 @@ struct problem {
     uint32_t n;        // Number of constraints
     uint32_t m;        // Number of variables
     uint32_t is_max;   // Boolean value to know if its a maximization problem
-    rc_t c;            // Reduced costs (m)
-    rc_t A;            // Constraints matrix (n x m)
-    rc_t b;            // RHS (n)
-    rc_t basis;        // Indices of basic variables (size n)
-    rc_t nonbasis;     // Indices of nonbasic variables (size m-n)
+    rc_t* c;           // Reduced costs (m)
+    rc_t* A;           // Constraints matrix (n x m)
+    rc_t* b;           // RHS (n)
+    rc_t* basis;       // Indices of basic variables (size n)
+    rc_t* nonbasis;    // Indices of nonbasic variables (size m-n)
     uint32_t pI_iter;  // Number of iterations to find base with PhaseI
-    rc_t varr;         // Array of variables
+    rc_t* varr;        // Array of variables
 };
 
 void gsl_vector_drop(void* data) {
@@ -31,54 +31,29 @@ void gsl_matrix_drop(void* data) {
     gsl_matrix_free((gsl_matrix*)data);
 }
 
-problem_t* problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c_raw, const gsl_matrix* A_raw,
-                       const gsl_vector* b_raw, const int32_t* basis_raw, uint32_t pI_iter,
-                       variable_t** variables_raw) {
-    if (!c_raw || !A_raw || !b_raw || !basis_raw || !variables_raw) {
-        return NULL;
-    }
-
-    problem_t* p = (problem_t*)malloc(sizeof(problem_t));
-    if (!p) {
-        return NULL;
-    }
-
-    p->n = n;
-    p->m = m;
-    p->is_max = is_max;
-
+problem_t* problem_new(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c_raw, gsl_matrix* A_raw, gsl_vector* b_raw,
+                       int32_t* basis_raw, uint32_t pI_iter, variable_t** variables_raw) {
+    problem_t* p = NULL;
     int32_t* used = NULL;
     int32_t* nonbasis = NULL;
-    varr_t* varr = NULL;
 
-    p->c = rc_new((void*)c_raw, gsl_vector_drop);
-    if (!p->c) {
+    if (!c_raw || !A_raw || !b_raw || !basis_raw || !variables_raw) {
         goto fail;
     }
 
-    p->A = rc_new((void*)A_raw, gsl_matrix_drop);
-    if (!p->A) {
+    p = (problem_t*)malloc(sizeof(problem_t));
+    if (!p) {
         goto fail;
     }
 
-    p->b = rc_new((void*)b_raw, gsl_vector_drop);
-    if (!p->b) {
-        goto fail;
-    }
-
-    p->basis = rc_new((void*)basis_raw, free);
-    if (!p->basis) {
-        goto fail;
-    }
-
-    used = (int32_t*)calloc(m, sizeof(uint32_t));
+    used = (int32_t*)calloc(m, sizeof(int32_t));
     if (!used) {
         goto fail;
     }
 
     for (uint32_t i = 0; i < n; i++) {
-        if (used[basis_raw[i]]) {
-            fprintf(stderr, "Duplicate basis index %u\n", basis_raw[i]);
+        if (basis_raw[i] >= (int32_t)m || used[basis_raw[i]]) {
+            fprintf(stderr, "Duplicate or invalid basis index %u\n", basis_raw[i]);
             goto fail;
         }
         used[basis_raw[i]] = 1;
@@ -95,44 +70,68 @@ problem_t* problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector
             nonbasis[nonbasis_count++] = i;
         }
     }
-    free(used);
-    used = NULL;
 
-    p->nonbasis = rc_new((void*)nonbasis, free);
-    if (!p->nonbasis) {
-        goto fail;
-    }
-
-    p->pI_iter = pI_iter;
-
-    varr = varr_new(variables_raw, m);
+    varr_t* varr = varr_new(variables_raw, m);
     if (!varr) {
         goto fail;
     }
 
-    p->varr = rc_new((void*)varr, varr_drop);
-    if (!p->varr) {
-        goto fail;
+    rc_t* c_rc = rc_new((void*)c_raw, gsl_vector_drop);
+    rc_t* A_rc = rc_new((void*)A_raw, gsl_matrix_drop);
+    rc_t* b_rc = rc_new((void*)b_raw, gsl_vector_drop);
+    rc_t* basis_rc = rc_new((void*)basis_raw, free);
+    rc_t* nonbasis_rc = rc_new((void*)nonbasis, free);
+    rc_t* varr_rc = rc_new((void*)varr, varr_drop);
+
+    if (!c_rc || !A_rc || !b_rc || !basis_rc || !nonbasis_rc || !varr_rc) {
+        goto rc_fail;
     }
+
+    p->n = n;
+    p->m = m;
+    p->is_max = is_max;
+    p->c = c_rc;
+    p->A = A_rc;
+    p->b = b_rc;
+    p->basis = basis_rc;
+    p->nonbasis = nonbasis_rc;
+    p->pI_iter = pI_iter;
+    p->varr = varr_rc;
+
+    free(used);
 
     return p;
 
 fail:
-    rc_free(&p->c);
-    rc_free(&p->A);
-    rc_free(&p->b);
-    rc_free(&p->basis);
+    free(p);
     free(used);
     free(nonbasis);
-    rc_free(&p->nonbasis);
-    varr_free(&varr);
-    rc_free(&p->varr);
-    problem_free(&p);
+    gsl_vector_free(c_raw);
+    gsl_matrix_free(A_raw);
+    gsl_vector_free(b_raw);
+    free(basis_raw);
+    if (variables_raw) {
+        for (uint32_t i = 0; i < m; i++) {
+            variable_free(&variables_raw[i]);
+        }
+        free(variables_raw);
+    }
+    return NULL;
+
+rc_fail:
+    free(p);
+    free(used);
+    rc_free(&c_rc);
+    rc_free(&A_rc);
+    rc_free(&b_rc);
+    rc_free(&basis_rc);
+    rc_free(&nonbasis_rc);
+    rc_free(&varr_rc);
     return NULL;
 }
 
-problem_t* problem_new2(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c_raw, const gsl_matrix* A_raw,
-                        const gsl_vector* b_raw, variable_t** variables_raw) {
+problem_t* problem_new2(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c_raw, gsl_matrix* A_raw,
+                        gsl_vector* b_raw, variable_t** variables_raw) {
     // Find a base with phaseI
     uint32_t pI_iter = 0;
     int32_t* basis = simplex_phaseI(n, m, A_raw, b_raw, variables_raw, &pI_iter);
@@ -153,8 +152,11 @@ problem_t* problem_duplicate(const problem_t* p) {
         return NULL;
     }
 
-    // Shallow copy
-    *p2 = *p;
+    // Copy
+    p2->n = p->n;
+    p2->m = p->m;
+    p2->is_max = p->is_max;
+    p2->pI_iter = p->pI_iter;
 
     // Clone
     p2->c = rc_clone(p->c);
@@ -163,6 +165,10 @@ problem_t* problem_duplicate(const problem_t* p) {
     p2->basis = rc_clone(p->basis);
     p2->nonbasis = rc_clone(p->nonbasis);
     p2->varr = rc_clone(p->varr);
+
+    if (!p2->c || !p2->A || !p2->b || !p2->basis || !p2->nonbasis || !p2->varr) {
+        problem_free(&p2);
+    }
 
     return p2;
 }

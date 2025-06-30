@@ -11,11 +11,11 @@
 
 typedef struct problem problem_t;
 
-problem_t* problem_new(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c_raw, const gsl_matrix* A_raw,
-                       const gsl_vector* b_raw, const int32_t* basis_raw, uint32_t pI_iter, variable_t** variables_raw);
+problem_t* problem_new(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c_raw, gsl_matrix* A_raw, gsl_vector* b_raw,
+                       int32_t* basis_raw, uint32_t pI_iter, variable_t** variables_raw);
 
-problem_t* problem_new2(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c_raw, const gsl_matrix* A_raw,
-                        const gsl_vector* b_raw, variable_t** variables_raw);
+problem_t* problem_new2(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c_raw, gsl_matrix* A_raw,
+                        gsl_vector* b_raw, variable_t** variables_raw);
 
 problem_t* problem_duplicate(const problem_t* p);
 

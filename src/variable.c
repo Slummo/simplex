@@ -56,7 +56,7 @@ variable_t* variable_new_binary() {
 }
 
 variable_t* variable_duplicate(const variable_t* v) {
-    return (variable_t*)v;
+    return v ? variable_new(v->lb, v->ub, v->type) : NULL;
 }
 
 void variable_print(const variable_t* v) {
@@ -68,7 +68,7 @@ void variable_print(const variable_t* v) {
 }
 
 void variable_free(variable_t** vp) {
-    if (*vp || !*vp) {
+    if (!vp || !*vp) {
         return;
     }
 
@@ -98,7 +98,11 @@ struct varr {
 };
 
 varr_t* varr_new(variable_t** varr_raw, uint32_t var_num) {
-    varr_t* varr = (varr_t*)malloc(sizeof(varr_t) * var_num);
+    if (!varr_raw || !var_num) {
+        return NULL;
+    }
+
+    varr_t* varr = (varr_t*)malloc(sizeof(varr_t));
     if (!varr) {
         return NULL;
     }
@@ -126,6 +130,10 @@ void varr_free(varr_t** varr_ptr) {
         return;
     }
 
+    for (uint32_t i = 0; i < (*varr_ptr)->n; i++) {
+        variable_free(&(*varr_ptr)->data[i]);
+    }
+
     free((*varr_ptr)->data);
     free(*varr_ptr);
     *varr_ptr = NULL;
@@ -137,6 +145,11 @@ void varr_drop(void* data) {
     }
 
     varr_t* varr = (varr_t*)data;
+
+    for (uint32_t i = 0; i < varr->n; i++) {
+        variable_free(&varr->data[i]);
+    }
+
     free(varr->data);
     free(varr);
 }

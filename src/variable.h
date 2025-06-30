@@ -27,6 +27,10 @@ uint32_t variable_is_integer(const variable_t* v);
 // Wrapper for an array of variable_t* and its size
 typedef struct varr varr_t;
 
+/// @brief Creates a new varr_t struct. On fail the owner must free varr_raw
+/// @param varr_raw A raw pointer to an array of variables
+/// @param var_num The number of variables in the array
+/// @return NULL on fail, a varr_t pointer on success
 varr_t* varr_new(variable_t** varr_raw, uint32_t var_num);
 const variable_t* varr_get(const varr_t* varr, uint32_t i);
 const variable_t** varr_data(const varr_t* varr);

@@ -31,7 +31,7 @@ int32_t problem_select_branch_var(const varr_t* varr, uint32_t variables_num, co
 // Direction can either be 'L' (Lower bound) or 'U' (Upper bound)
 problem_t* problem_branch(const problem_t* p, int32_t branch_var_index, double bound, char direction) {
     if (!p || (direction != 'U' && direction != 'L')) {
-        fprintf(stderr, "Error in problem_branch\n");
+        fprintf(stderr, "NULL problem or unknown direction in problem_branch\n");
         return NULL;
     }
 
@@ -43,6 +43,11 @@ problem_t* problem_branch(const problem_t* p, int32_t branch_var_index, double b
     const gsl_matrix* A = problem_A(p);
     const int32_t* basis = problem_basis(p);
     const varr_t* varr = problem_varr(p);
+
+    if (!c || !b || !A || !basis || !varr) {
+        fprintf(stderr, "Error in getting resources from problem p in problem_branch\n");
+        return NULL;
+    }
 
     uint32_t n2 = n + 1;  // +1 for the new constraint
     uint32_t m2 = m + 1;  // +1 for the new slack/surplus variable
@@ -68,7 +73,8 @@ problem_t* problem_branch(const problem_t* p, int32_t branch_var_index, double b
         goto fail;
     }
 
-    variables2 = (variable_t**)malloc(sizeof(variable_t**) * m2);
+    uint32_t vars_set = 0;
+    variables2 = (variable_t**)malloc(sizeof(variable_t*) * m2);
     if (!variables2) {
         goto fail;
     }
@@ -91,6 +97,11 @@ problem_t* problem_branch(const problem_t* p, int32_t branch_var_index, double b
 
             // Add new slack/surplus variable
             variables2[j] = variable_new_real_positive(10e9);
+        }
+
+        vars_set++;
+        if (!variables2[j]) {
+            goto fail;
         }
     }
 
@@ -131,11 +142,10 @@ problem_t* problem_branch(const problem_t* p, int32_t branch_var_index, double b
 
     // Check if original base is still feasible
     uint32_t og_base_feasible = 1;
-    for (uint32_t i = 0; i < n; i++) {
+    for (uint32_t i = 0; og_base_feasible && i < n; i++) {
         double bi = gsl_vector_get(b2, i);
         if (bi < -1e-8) {
             og_base_feasible = 0;
-            break;
         }
     }
 
@@ -166,10 +176,13 @@ problem_t* problem_branch(const problem_t* p, int32_t branch_var_index, double b
 
 fail:
     gsl_vector_free(c2);
-    gsl_vector_free(b2);
     gsl_matrix_free(A2);
-    for (uint32_t i = 0; i < m2; i++) {
-        variable_free(&variables2[i]);
+    gsl_vector_free(b2);
+    if (variables2) {
+        for (uint32_t i = 0; i < vars_set; i++) {
+            variable_free(&variables2[i]);
+        }
+        free(variables2);
     }
     free(basis2);
     return NULL;
@@ -186,12 +199,19 @@ solution_t* branch_and_bound(const problem_t* p) {
         return NULL;
     }
 
-    if (!pstack_push(stack, p)) {
+    problem_t* p2 = problem_duplicate(p);
+    if (!p2) {
+        return NULL;
+    }
+
+    if (!pstack_push(stack, p2)) {
         pstack_free(&stack);
         return NULL;
     }
 
     solution_t* best = NULL;
+    const varr_t* varr = problem_varr(p);
+    uint32_t m = problem_m(p);
 
     while (!pstack_empty(stack)) {
         problem_t* current_problem = pstack_pop(stack);
@@ -207,7 +227,7 @@ solution_t* branch_and_bound(const problem_t* p) {
             continue;
         }
 
-        int32_t branch_var = problem_select_branch_var(problem_varr(p), problem_m(p), current_solution);
+        int32_t branch_var = problem_select_branch_var(varr, m, current_solution);
         if (branch_var == -2) {
             solution_free(&current_solution);
             problem_free(&current_problem);
@@ -235,12 +255,12 @@ solution_t* branch_and_bound(const problem_t* p) {
         problem_t* left = problem_branch(current_problem, branch_var, bound, 'U');
         problem_t* right = problem_branch(current_problem, branch_var, bound, 'L');
 
-        if (left) {
-            pstack_push(stack, left);
+        if (left && !pstack_push(stack, left)) {
+            problem_free(&left);
         }
 
-        if (right) {
-            pstack_push(stack, right);
+        if (right && !pstack_push(stack, right)) {
+            problem_free(&right);
         }
 
         solution_free(&current_solution);

@@ -8,7 +8,7 @@ struct pnode {
     pnode_t* next;
 };
 
-pnode_t* pnode_new(const problem_t* problem) {
+pnode_t* pnode_new(problem_t* problem) {
     if (!problem) {
         return NULL;
     }
@@ -18,7 +18,7 @@ pnode_t* pnode_new(const problem_t* problem) {
         return NULL;
     }
 
-    n->p = problem_duplicate(problem);
+    n->p = problem;
     n->next = NULL;
 
     return n;
@@ -90,7 +90,7 @@ uint32_t pstack_empty(const pstack_t* s) {
     return !s || plist_empty(s->top);
 }
 
-uint32_t pstack_push(pstack_t* s, const problem_t* problem) {
+uint32_t pstack_push(pstack_t* s, problem_t* problem) {
     if (!s) {
         return 0;
     }
@@ -105,7 +105,6 @@ uint32_t pstack_push(pstack_t* s, const problem_t* problem) {
         return 1;
     }
 
-    free(n);
     return 0;
 }
 

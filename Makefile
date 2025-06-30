@@ -64,8 +64,25 @@ drun: all
 		gdb ./$(BIN)/$(TARGET); \
 	fi
 
+# Run with Valgrind
+valgrind: DEBUG := 1
+valgrind: all
+	@if [ -n "$(ARGS)" ]; then \
+		valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose ./$(BIN)/$(TARGET) $(MODELS)/$(ARGS)$(MODEL_FILE_EXT); \
+	else \
+		valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --verbose ./$(BIN)/$(TARGET); \
+	fi
+
+valgrind_summary: DEBUG := 1
+valgrind_summary: all
+	@if [ -n "$(ARGS)" ]; then \
+		valgrind --leak-check=full ./$(BIN)/$(TARGET) $(MODELS)/$(ARGS)$(MODEL_FILE_EXT); \
+	else \
+		valgrind --leak-check=full ./$(BIN)/$(TARGET); \
+	fi
+
 # Clean build artifacts
 clean:
 	rm -rf $(OBJ) $(BIN)/$(TARGET)
 
-.PHONY: all run debug drun clean
+.PHONY: all run debug drun valgrind valgrind_summary clean
