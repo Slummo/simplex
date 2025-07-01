@@ -195,16 +195,7 @@ solution_t* branch_and_bound(const problem_t* p) {
     }
 
     pstack_t* stack = pstack_new();
-    if (!stack) {
-        return NULL;
-    }
-
-    problem_t* p2 = problem_duplicate(p);
-    if (!p2) {
-        return NULL;
-    }
-
-    if (!pstack_push(stack, p2)) {
+    if (!pstack_push(stack, problem_duplicate(p))) {
         pstack_free(&stack);
         return NULL;
     }

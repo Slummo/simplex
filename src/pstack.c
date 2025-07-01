@@ -91,7 +91,7 @@ uint32_t pstack_empty(const pstack_t* s) {
 }
 
 uint32_t pstack_push(pstack_t* s, problem_t* problem) {
-    if (!s) {
+    if (!s || !problem) {
         return 0;
     }
 

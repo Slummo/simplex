@@ -7,6 +7,9 @@
 
 #include <gsl/gsl_errno.h>
 
+#include <sys/time.h>
+#include <sys/resource.h>
+
 int read_model(FILE* stream, uint32_t* n, uint32_t* m, uint32_t* is_max, gsl_vector** c_raw, gsl_matrix** A_raw,
                gsl_vector** b_raw, variable_t*** variables_raw) {
     if (stream == stdin) {
@@ -103,7 +106,32 @@ fail:
     return 0;
 }
 
+void print_performance_report(struct timeval* restrict t_start, struct timeval* restrict t_end,
+                              struct rusage* restrict usage) {
+    puts("\n\nPerformance report:");
+    if (getrusage(RUSAGE_SELF, usage) != 0) {
+        perror("getrusage");
+    } else {
+        printf("  -Peak used RAM: %ld KB\n", usage->ru_maxrss);
+    }
+
+    if (gettimeofday(t_end, NULL) != 0) {
+        perror("gettimeofday");
+    } else {
+        double elapsed = (t_end->tv_sec - t_start->tv_sec) + (t_end->tv_usec - t_start->tv_usec) * 1e-6;
+        printf("  -Elapsed time: %lf\n", elapsed);
+    }
+}
+
 int main(int argc, char** args) {
+    struct timeval t_start, t_end;
+    struct rusage usage;
+
+    if (gettimeofday(&t_start, NULL) != 0) {
+        perror("gettimeofday");
+        return EXIT_FAILURE;
+    }
+
     if (argc > 2) {
         fprintf(stderr, "Wrong number of arguments! Usage: 'zmax <filename>' or just 'zmax' to read from stdin\n");
         return EXIT_FAILURE;
@@ -138,7 +166,7 @@ int main(int argc, char** args) {
     }
     problem_print(p, "Problem");
 
-    char* solver_name = NULL;
+    const char* solver_name = NULL;
 
     if (problem_is_milp(p)) {
         solver_name = "Branch and bound";
@@ -157,6 +185,8 @@ int main(int argc, char** args) {
 
     problem_free(&p);
     solution_free(&s);
+
+    print_performance_report(&t_start, &t_end, &usage);
 
     return res;
 }

@@ -235,7 +235,7 @@ solution_t* simplex_phaseII(const problem_t* p) {
     uint32_t pII_iter = 0;
     uint32_t unbounded = 0;
     while (1) {
-        // Extract Ab matrix
+        // Extract Ab matrix and cb vector
         for (uint32_t i = 0; i < n; i++) {
             for (uint32_t j = 0; j < n; j++) {
                 // basis indices must be valid column indices
