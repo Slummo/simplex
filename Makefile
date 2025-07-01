@@ -1,15 +1,17 @@
 # Directories
 SRC := src
+INC := include
 LIB := lib
-OBJ := obj
-BIN := bin
+BLD := build
+OBJ := $(BLD)/obj
+BIN := $(BLD)/bin
 MODELS := test_models
 MODEL_FILE_EXT := .txt
 
 # Compiler and flags
 CC := gcc
 CFLAGS := 
-COMPILE_FLAGS := -Wall  -Wextra -Wshadow -I$(SRC) -I$(LIB) -L$(LIB)
+COMPILE_FLAGS := -Wall  -Wextra -Wshadow -I$(INC) -L$(LIB)
 LIBS := -lc -lgsl -lgslcblas -lm -lrc
 
 DEBUG ?= 0
@@ -27,7 +29,7 @@ TARGET := zmax
 SRCS := $(shell find $(SRC) -type f -name "*.c")
 
 # Object files
-OBJS := $(patsubst %.c, $(OBJ)/%.o, $(SRCS))
+OBJS := $(patsubst $(SRC)/%.c,$(OBJ)/%.o,$(SRCS))
 
 # Default target
 all: $(BIN)/$(TARGET)
@@ -38,7 +40,7 @@ $(BIN)/$(TARGET): $(OBJS)
 	$(CC) $(BUILD_FLAGS) $^ $(LIBS) -o $@
 
 # Compile all .c files to .o files
-$(OBJ)/%.o: %.c
+$(OBJ)/%.o: $(SRC)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(BUILD_FLAGS) -c $< -o $@
 
@@ -83,6 +85,6 @@ valgrind_summary: all
 
 # Clean build artifacts
 clean:
-	rm -rf $(OBJ) $(BIN)/$(TARGET)
+	rm -rf $(BLD)
 
 .PHONY: all run debug drun valgrind valgrind_summary clean

@@ -1,6 +1,7 @@
 #ifndef BRANCH_BOUND_H
 #define BRANCH_BOUND_H
 
+#include "solution.h"
 #include "problem.h"
 
 // Choses a non-integer variable to start branching from.

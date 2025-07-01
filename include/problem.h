@@ -3,7 +3,6 @@
 
 #define MAX_ROWS 100
 
-#include "solution.h"
 #include "variable.h"
 #include <stdint.h>
 #include <gsl/gsl_matrix.h>
