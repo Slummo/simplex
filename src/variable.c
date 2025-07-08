@@ -24,39 +24,32 @@ const char* variable_type_to_str(variable_type_t vt) {
     }
 }
 
-struct variable {
-    double lb;
-    double ub;
-    variable_type_t type;
-};
-
-variable_t* variable_new(double lb, double ub, variable_type_t type) {
-    variable_t* v = (variable_t*)malloc(sizeof(variable_t));
-    if (!v) {
-        return NULL;
+uint32_t variable_init(variable_t* variable_ptr, double lb, double ub, variable_type_t type) {
+    if (!variable_ptr) {
+        return 0;
     }
 
-    v->lb = lb;
-    v->ub = ub;
-    v->type = type;
+    variable_ptr->lb = lb;
+    variable_ptr->ub = ub;
+    variable_ptr->type = type;
 
-    return v;
+    return 1;
 }
 
-variable_t* variable_new_real_positive(double ub) {
-    return variable_new(0, ub, VAR_REAL);
+uint32_t variable_init_real_positive(variable_t* variable_ptr, double ub) {
+    return variable_init(variable_ptr, 0.0, ub, VAR_REAL);
 }
 
-variable_t* variable_new_integer_positive(double ub) {
-    return variable_new(0, ub, VAR_INTEGER);
+uint32_t variable_init_integer_positive(variable_t* variable_ptr, double ub) {
+    return variable_init(variable_ptr, 0.0, ub, VAR_INTEGER);
 }
 
-variable_t* variable_new_binary() {
-    return variable_new(0, 1, VAR_BINARY);
+uint32_t variable_init_binary(variable_t* variable_ptr) {
+    return variable_init(variable_ptr, 0.0, 1.0, VAR_BINARY);
 }
 
-variable_t* variable_duplicate(const variable_t* v) {
-    return v ? variable_new(v->lb, v->ub, v->type) : NULL;
+variable_t variable_copy(variable_t other) {
+    return other;
 }
 
 void variable_print(const variable_t* v) {
@@ -67,89 +60,113 @@ void variable_print(const variable_t* v) {
     printf("Variable[lb: %.3lf, ub: %.3lf, type: %s]\n", v->lb, v->ub, variable_type_to_str(v->type));
 }
 
-void variable_free(variable_t** vp) {
-    if (!vp || !*vp) {
+void variable_free(variable_t* variable_ptr) {
+    if (!variable_ptr) {
         return;
     }
 
-    free(*vp);
-    *vp = NULL;
-}
-
-/* Getters */
-
-double variable_lb(const variable_t* v) {
-    return v ? v->lb : -1.0;
-}
-
-double variable_ub(const variable_t* v) {
-    return v ? v->ub : -1.0;
-}
-
-uint32_t variable_is_integer(const variable_t* v) {
-    return v ? v->type == VAR_INTEGER : 0;
+    return;
 }
 
 /* VARR */
-
-struct varr {
-    variable_t** data;
-    uint32_t n;
-};
-
-varr_t* varr_new(variable_t** varr_raw, uint32_t var_num) {
-    if (!varr_raw || !var_num) {
-        return NULL;
+uint32_t var_arr_init(var_arr_t* var_arr_ptr, uint32_t initial_capacity) {
+    if (!var_arr_ptr) {
+        return 0;
     }
 
-    varr_t* varr = (varr_t*)malloc(sizeof(varr_t));
-    if (!varr) {
-        return NULL;
+    var_arr_ptr->data = (variable_t*)malloc(sizeof(variable_t) * initial_capacity);
+    if (!var_arr_ptr->data) {
+        return 0;
+    }
+    var_arr_ptr->length = 0;
+    var_arr_ptr->capacity = initial_capacity;
+
+    return 1;
+}
+
+uint32_t var_arr_from_stream(var_arr_t* var_arr_ptr, FILE* stream, uint32_t capacity, uint32_t size) {
+    if (size > capacity) {
+        fprintf(stderr, "Requested size exceeds capacity in var_arr_from_stream\n");
+        return 0;
     }
 
-    varr->data = varr_raw;
-    varr->n = var_num;
+    if (!var_arr_init(var_arr_ptr, capacity)) {
+        fprintf(stderr, "Failed to init var_arr in var_arr_from_stream\n");
+        return 0;
+    }
 
-    return varr;
+    if (stream == stdin) {
+        printf("type (0 = real / 1 = integer / 2 = binary) per variable: ");
+        fflush(stdout);
+    }
+
+    uint32_t type = 0;
+    variable_t v;
+    for (uint32_t i = 0; i < size; ++i) {
+        if (fscanf(stream, "%u", &type) != 1 || (type != 0 && type != 1 && type != 2)) {
+            fprintf(stderr, "Invalid type flag %u for variable %u\n", type, i);
+            goto fail;
+        } else {
+            switch (type) {
+                case 0: {
+                    if (!variable_init_real_positive(&v, 10e9) || !var_arr_push(var_arr_ptr, &v)) {
+                        goto fail;
+                    }
+                    break;
+                }
+                case 1: {
+                    if (!variable_init_integer_positive(&v, 10e9) || !var_arr_push(var_arr_ptr, &v)) {
+                        goto fail;
+                    }
+                    break;
+                }
+                case 2: {
+                    if (!variable_init_binary(&v) || !var_arr_push(var_arr_ptr, &v)) {
+                        goto fail;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    return 1;
+
+fail:
+    var_arr_free(var_arr_ptr);
+    return 0;
 }
 
-const variable_t* varr_get(const varr_t* varr, uint32_t i) {
-    return varr ? varr->data[i] : NULL;
+const variable_t* var_arr_get(const var_arr_t* array_ptr, uint32_t i) {
+    if (array_ptr && i < array_ptr->length && array_ptr->data) {
+        return &array_ptr->data[i];
+    }
+
+    __builtin_trap();
+    return NULL;
 }
 
-const variable_t** varr_data(const varr_t* varr) {
-    return varr ? (const variable_t**)varr->data : NULL;
+// Takes ownership of *variable_ptr
+uint32_t var_arr_push(var_arr_t* array_ptr, variable_t* variable_ptr) {
+    if (!array_ptr || array_ptr->length >= array_ptr->capacity || !variable_ptr) {
+        return 0;
+    }
+
+    array_ptr->data[array_ptr->length++] = variable_copy(*variable_ptr);
+    return 1;
 }
 
-uint32_t varr_num(const varr_t* varr) {
-    return varr ? varr->n : 0;
-}
-
-void varr_free(varr_t** varr_ptr) {
-    if (!varr_ptr || !*varr_ptr) {
+void var_arr_free(var_arr_t* array_ptr) {
+    if (!array_ptr || !array_ptr->data) {
         return;
     }
 
-    for (uint32_t i = 0; i < (*varr_ptr)->n; i++) {
-        variable_free(&(*varr_ptr)->data[i]);
+    for (uint32_t i = 0; i < array_ptr->length; i++) {
+        variable_free((variable_t*)var_arr_get(array_ptr, i));
     }
 
-    free((*varr_ptr)->data);
-    free(*varr_ptr);
-    *varr_ptr = NULL;
-}
-
-void varr_drop(void* data) {
-    if (!data) {
-        return;
-    }
-
-    varr_t* varr = (varr_t*)data;
-
-    for (uint32_t i = 0; i < varr->n; i++) {
-        variable_free(&varr->data[i]);
-    }
-
-    free(varr->data);
-    free(varr);
+    free(array_ptr->data);
+    array_ptr->data = NULL;
+    array_ptr->length = 0;
+    array_ptr->capacity = 0;
 }

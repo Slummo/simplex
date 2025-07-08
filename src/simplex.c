@@ -2,215 +2,155 @@
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <gsl/gsl_linalg.h>
 
 // Find problem basis indices with Phase 1 method
-int32_t* simplex_phaseI(uint32_t n, uint32_t m, gsl_matrix* A, gsl_vector* b, variable_t** variables,
-                        uint32_t* pI_iter_ptr) {
-    if (!A || !b || !variables || !pI_iter_ptr) {
+int32_t* simplex_phaseI(problem_t* problem_ptr) {
+    if (!problem_ptr) {
         fprintf(stderr, "Some arguments are NULL in simplex_phaseI\n");
         return NULL;
     }
 
-    int32_t* basis = NULL;
-    gsl_vector* c = NULL;
-    int32_t* artificial = NULL;
-    gsl_matrix* A2 = NULL;
-    gsl_vector* b2 = NULL;
-    variable_t** variables2 = NULL;
-    problem_t* phaseI = NULL;
+    uint32_t m = problem_m(problem_ptr);
+    uint32_t n = problem_n(problem_ptr);
 
-    // Try first to identify an identity matrix
-    basis = (int32_t*)malloc(sizeof(int32_t) * n);
-    if (!basis) {
+    int32_t* B = (int32_t*)malloc(sizeof(int32_t) * n);
+    if (!B) {
         fprintf(stderr, "Failed to allocate array for basis indices for PhaseI\n");
-        goto fail;
+        return NULL;
     }
 
-    // Initialize basis indices to -1
-    for (uint32_t i = 0; i < n; i++) {
-        basis[i] = -1;
-    }
-
-    // Check for identity
-    for (uint32_t j = 0; j < m; j++) {
-        int32_t pivot_row = -1;
-        uint32_t valid = 1;
+    if (problem_has_feasible_base(problem_ptr, B)) {
+        printf("B: ");
         for (uint32_t i = 0; i < n; i++) {
-            double aij = gsl_matrix_get(A, i, j);
-            if (aij == (double)1) {
-                if (pivot_row == -1) {
-                    pivot_row = (int32_t)i;
-                } else {
-                    valid = 0;
-                    break;
-                }
-            } else if (aij != (double)0) {
-                valid = 0;
-                break;
-            }
+            printf("%d, ", B[i]);
         }
-        if (valid && pivot_row != -1 && basis[pivot_row] == -1) {
-            basis[pivot_row] = j;
-        }
+        puts("");
+        return B;
     }
 
-    // Check if base is feasible
-    uint32_t feasible = 1;
-    for (uint32_t i = 0; i < n; i++) {
-        if (basis[i] == -1 || gsl_vector_get(b, i) < 0) {
-            feasible = 0;
-            break;
-        }
-    }
+    int32_t* artificial_B = NULL;
+    int32_t* artificial_N = NULL;
 
-    if (feasible) {
-        *pI_iter_ptr = 0;
-        return basis;
-    }
+    // Augmented capacity for phaseI
+    uint32_t variables_num = m + n;
+    uint32_t constraints_num = n;
 
-    // If not, try with Phase I method.
-    memset(basis, 0, sizeof(int32_t) * n);
-
-    // One artificial variable per constraint
-    c = gsl_vector_alloc(m + n);
-    if (!c) {
-        fprintf(stderr, "Failed to alloc c for PhaseI\n");
+    // Get views
+    gsl_vector_view c_view;
+    if (!problem_c_as_gsl_view(problem_ptr, 0, constraints_num, &c_view)) {
         goto fail;
     }
+    gsl_vector* c_gsl = &c_view.vector;
 
-    // Set vector c
-    for (uint32_t i = 0; i < m + n; i++) {
-        gsl_vector_set(c, i, i < m ? 0.0 : -1.0);
+    gsl_matrix_view A_view;
+    if (!problem_A_as_gsl_view(problem_ptr, 0, 0, constraints_num, variables_num, &A_view)) {
+        goto fail;
+    }
+    gsl_matrix* A_gsl = &A_view.matrix;
+
+    gsl_vector_view b_view;
+    if (!problem_b_as_gsl_view(problem_ptr, 0, constraints_num, &b_view)) {
+        goto fail;
+    }
+    gsl_vector* b_gsl = &b_view.vector;
+
+    // Set artificial variables' coefficients
+    for (uint32_t i = m; i < variables_num; i++) {
+        gsl_vector_set(c_gsl, i, -1.0);
     }
 
-    artificial = (int32_t*)malloc(sizeof(int32_t) * n);
-    if (!artificial) {
-        fprintf(stderr, "Failed to allocate array for artificial indices for PhaseI\n");
+    artificial_B = (int32_t*)malloc(sizeof(int32_t) * n);
+    if (!artificial_B) {
+        fprintf(stderr, "Failed to allocate array of artificial base indices for PhaseI\n");
         goto fail;
     }
 
     // Set array
     for (uint32_t i = 0; i < n; i++) {
-        artificial[i] = (int32_t)(m + i);
+        artificial_B[i] = (int32_t)(m + i);
     }
 
-    // Augmented matrix with m + n columns (one column for each artificial variable)
-    A2 = gsl_matrix_alloc(n, m + n);
-    if (!A2) {
-        fprintf(stderr, "Failed to alloc A2 for PhaseI\n");
+    artificial_N = calculate_nonbasis(artificial_B, constraints_num, variables_num);
+    if (!artificial_N) {
+        fprintf(stderr, "Failed to allocate array of artificial non-base indices for PhaseI\n");
         goto fail;
     }
 
-    // Copy first m values for each row,
-    // then add values for artificial variables
+    // Add values for artificial variables on each row
     for (uint32_t i = 0; i < n; i++) {
-        for (uint32_t j = 0; j < m + n; j++) {
-            if (j < m) {
-                gsl_matrix_set(A2, i, j, gsl_matrix_get(A, i, j));
-            } else if (j == m + i) {
+        for (uint32_t j = m; j < variables_num; j++) {
+            if (j == m + i) {
                 // Artificial variable in column m + i
-                gsl_matrix_set(A2, i, j, 1.0);
+                gsl_matrix_set(A_gsl, i, j, 1.0);
             } else {
-                gsl_matrix_set(A2, i, j, 0.0);
+                gsl_matrix_set(A_gsl, i, j, 0.0);
             }
         }
     }
 
-    // Duplicate b and variables
-    b2 = vector_duplicate(b);
-    if (!b2) {
-        fprintf(stderr, "Failed to duplicate b for PhaseI\n");
-        goto fail;
-    }
-
-    variables2 = (variable_t**)malloc(sizeof(variable_t*) * (m + n));
-    if (!variables2) {
-        fprintf(stderr, "Failed to duplicate variables for PhaseI\n");
-        goto fail;
-    }
-
-    for (uint32_t i = 0; i < (m + n); i++) {
-        if (i < m) {
-            variables2[i] = variable_duplicate(variables[i]);
-        } else {
-            variables2[i] = variable_new_real_positive(10e9);
+    var_arr_t* var_arr_ptr = problem_var_arr_mut(problem_ptr);
+    variable_t v;
+    for (uint32_t i = m; i < variables_num; i++) {
+        if (!variable_init_real_positive(&v, 10e9) || !var_arr_push(var_arr_ptr, &v)) {
+            goto fail;
         }
     }
 
     // The PhaseI problem doesn't need another PhaseI, it always
     // has a feasible base and goes straight to PhaseII
-    phaseI = problem_new(n, m + n, 1, c, A2, b2, artificial, 0, variables2);
-    if (!phaseI) {
-        fprintf(stderr, "Failed to create PhaseI problem\n");
-        free(basis);
-        return NULL;
+    solution_t phaseI_solution;
+    if (!simplex_phaseII(constraints_num, variables_num, problem_is_max(problem_ptr), c_gsl, A_gsl, b_gsl, artificial_B,
+                         artificial_N, &phaseI_solution)) {
+        fprintf(stderr, "Failed to create solution for PhaseI problem\n");
+        goto fail;
     }
 
-    solution_t* pII_s = simplex_phaseII(phaseI);
-    if (!pII_s) {
-        fprintf(stderr, "Failed to create solution for PhaseI problem\n");
-        free(basis);
-        problem_free(&phaseI);
-        return NULL;
-    }
+    free(artificial_N);
+    artificial_N = NULL;
 
     // No feasible base for original problem
-    if (solution_z(pII_s) < 0) {
-        free(basis);
-        basis = NULL;
+    if (solution_z(&phaseI_solution) < 0) {
+        free(B);
+        B = NULL;
     } else {
-        const gsl_vector* x = solution_x(pII_s);
-        const int32_t* final_basis = problem_basis(phaseI);
+        const gsl_vector* x = solution_x(&phaseI_solution);
         for (uint32_t i = 0; i < n; i++) {
             // If the variable in basis is artificial (index >= m), make sure its value is 0
-            if (final_basis[i] >= (int32_t)m && gsl_vector_get(x, final_basis[i]) > 0) {
+            if (artificial_B[i] >= (int32_t)m && gsl_vector_get(x, artificial_B[i]) > 0) {
                 // Infeasible
-                free(basis);
-                basis = NULL;
+                free(B);
+                B = NULL;
                 break;
             }
 
-            basis[i] = final_basis[i];
+            B[i] = artificial_B[i];
         }
     }
 
-    *pI_iter_ptr = solution_pII_iterations(pII_s);
+    free(artificial_B);
+    artificial_B = NULL;
 
-    problem_free(&phaseI);
-    solution_free(&pII_s);
+    problem_set_pI_iter(problem_ptr, solution_pII_iterations(&phaseI_solution));
 
-    return basis;
+    solution_free(&phaseI_solution);
+
+    return B;
 
 fail:
-    free(basis);
-    gsl_vector_free(c);
-    free(artificial);
-    gsl_matrix_free(A2);
-    gsl_vector_free(b2);
-    for (uint32_t i = 0; i < m; i++) {
-        variable_free(&variables2[i]);
-    }
-    free(variables2);
+    free(B);
+    free(artificial_B);
+    free(artificial_N);
     return NULL;
 }
 
-// simplex_phaseII method on linear problem p
-solution_t* simplex_phaseII(const problem_t* p) {
-    if (!p) {
-        fprintf(stderr, "problem is NULL in simplex_phaseII\n");
-        return NULL;
+uint32_t simplex_phaseII(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
+                         const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr) {
+    if (!c || !A || !B || !N || !solution_ptr) {
+        fprintf(stderr, "Some arguments are NULL in simplex_phaseII\n");
+        return 0;
     }
 
-    uint32_t n = problem_n(p);
-    uint32_t m = problem_m(p);
-    const gsl_matrix* A = problem_A(p);
-    const gsl_vector* b = problem_b(p);
-    int32_t* basis = problem_basis_mut(p);
-    int32_t* nonbasis = problem_nonbasis_mut(p);
-
-    gsl_vector* c = vector_duplicate(problem_c(p));
     gsl_matrix* Ab = gsl_matrix_alloc(n, n);
     gsl_matrix* Ab_inv = NULL;
     gsl_vector* xB = gsl_vector_alloc(n);
@@ -218,18 +158,13 @@ solution_t* simplex_phaseII(const problem_t* p) {
     gsl_vector* cn = gsl_vector_alloc(m - n);
     gsl_vector* r = gsl_vector_alloc(m - n);
 
-    if (!Ab || !xB || !cb || !cn || !r || !c) {
+    if (!Ab || !xB || !cb || !cn || !r) {
         gsl_matrix_free(Ab);
         gsl_vector_free(xB);
         gsl_vector_free(cb);
         gsl_vector_free(cn);
         gsl_vector_free(r);
-        gsl_vector_free(c);
-        return NULL;
-    }
-
-    if (!problem_is_max(p)) {
-        gsl_vector_scale(c, -1.0);
+        return 0;
     }
 
     uint32_t pII_iter = 0;
@@ -238,10 +173,11 @@ solution_t* simplex_phaseII(const problem_t* p) {
         // Extract Ab matrix and cb vector
         for (uint32_t i = 0; i < n; i++) {
             for (uint32_t j = 0; j < n; j++) {
-                // basis indices must be valid column indices
-                gsl_matrix_set(Ab, i, j, gsl_matrix_get(A, i, basis[j]));
+                // Basis indices must be valid column indices
+                gsl_matrix_set(Ab, i, j, gsl_matrix_get(A, i, B[j]));
             }
-            gsl_vector_set(cb, i, gsl_vector_get(c, basis[i]));
+            double ci = gsl_vector_get(c, B[i]);
+            gsl_vector_set(cb, i, is_max ? ci : -ci);
         }
 
         // Compute the inverse of Ab
@@ -254,10 +190,11 @@ solution_t* simplex_phaseII(const problem_t* p) {
 
         // Compute reduced costs for all nonbasis variables
         for (uint32_t i = 0; i < (m - n); i++) {
-            uint32_t j = nonbasis[i];
+            uint32_t j = N[i];
 
             // cn[i] = cj
-            gsl_vector_set(cn, i, gsl_vector_get(c, j));
+            double cj = gsl_vector_get(c, j);
+            gsl_vector_set(cn, i, is_max ? cj : -cj);
 
             // aj
             gsl_vector* aj = gsl_vector_alloc(n);
@@ -294,7 +231,7 @@ solution_t* simplex_phaseII(const problem_t* p) {
         }
 
         // Extract column j of A
-        uint32_t j = nonbasis[entering];
+        uint32_t j = N[entering];
         gsl_vector* aj = gsl_vector_alloc(n);
         for (uint32_t k = 0; k < n; k++) {
             gsl_vector_set(aj, k, gsl_matrix_get(A, k, j));
@@ -329,29 +266,29 @@ solution_t* simplex_phaseII(const problem_t* p) {
         }
 
         // Switch entering and leaving variables
-        uint32_t tmp = basis[leaving];
-        basis[leaving] = nonbasis[entering];
-        nonbasis[entering] = tmp;
+        uint32_t tmp = B[leaving];
+        B[leaving] = N[entering];
+        N[entering] = tmp;
 
         gsl_vector_free(aj);
         gsl_vector_free(d);
         pII_iter++;
     }
 
-    solution_t* s = solution_new(n, m, unbounded, problem_pI_iter(p), pII_iter);
+    uint32_t res = solution_init(solution_ptr, n, m, unbounded, 0, pII_iter);
 
     // Extract optimal solution and value
-    if (s && !solution_is_unbounded(s)) {
-        gsl_vector* v = solution_x_mut(s);
+    if (res && !solution_is_unbounded(solution_ptr)) {
+        gsl_vector* x = solution_x_mut(solution_ptr);
         double z = 0.0;
         for (uint32_t i = 0; i < n; i++) {
-            gsl_vector_set(v, basis[i], gsl_vector_get(xB, i));
+            gsl_vector_set(x, B[i], gsl_vector_get(xB, i));
         }
-        gsl_blas_ddot(c, v, &z);
-        solution_set_optimal_value(s, z);
+
+        gsl_blas_ddot(c, x, &z);
+        solution_set_optimal_value(solution_ptr, is_max ? z : -z);
     }
 
-    gsl_vector_free(c);
     gsl_vector_free(cb);
     gsl_vector_free(cn);
     gsl_vector_free(r);
@@ -359,5 +296,5 @@ solution_t* simplex_phaseII(const problem_t* p) {
     gsl_matrix_free(Ab_inv);
     gsl_matrix_free(Ab);
 
-    return s;
+    return 1;
 }

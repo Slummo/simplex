@@ -4,67 +4,59 @@
 #include <string.h>
 #include <math.h>
 
-struct solution {
-    uint32_t n;             // Number of constraints
-    uint32_t m;             // Number of variables
-    gsl_vector* x;          // Optimal solution (m)
-    double z;               // Optimal value
-    uint32_t is_unbounded;  // Boolean value to know if unbounded
-    uint32_t pI_iter;       // Number of iterations of PhaseI to find a base
-    uint32_t pII_iter;      // Number of iterations of PhaseII to find solution
-};
-
-solution_t* solution_new(uint32_t n, uint32_t m, uint32_t is_unbounded, uint32_t pI_iter, uint32_t pII_iter) {
-    solution_t* s = (solution_t*)malloc(sizeof(solution_t));
-    if (!s) {
-        return NULL;
-    }
-
-    s->n = n;
-    s->m = m;
-    s->x = gsl_vector_calloc(m);
-    if (!s->x) {
-        free(s);
-        return NULL;
-    }
-    s->z = 0.0;
-    s->is_unbounded = is_unbounded;
-    s->pI_iter = pI_iter;
-    s->pII_iter = pII_iter;
-
-    return s;
-}
-
-// Checks if the i-th component of the solution is an integer
-uint32_t solution_var_is_integer(const solution_t* s, uint32_t i) {
-    if (!s) {
-        fprintf(stderr, "s is NULL in solution_var_is_integer\n");
+uint32_t solution_init(solution_t* solution_ptr, uint32_t n, uint32_t m, uint32_t is_unbounded, uint32_t pI_iter,
+                       uint32_t pII_iter) {
+    if (!solution_ptr) {
         return 0;
     }
 
-    double xi = gsl_vector_get(s->x, i);
+    gsl_vector* x = gsl_vector_calloc(m);
+    if (!x) {
+        return 0;
+    }
+
+    solution_ptr->n = n;
+    solution_ptr->m = m;
+    solution_ptr->x = x;
+    solution_ptr->z = 0.0;
+    solution_ptr->is_unbounded = is_unbounded;
+    solution_ptr->pI_iter = pI_iter;
+    solution_ptr->pII_iter = pII_iter;
+
+    return 1;
+}
+
+// Checks if the i-th component of the solution is an integer
+uint32_t solution_var_is_integer(const solution_t* solution_ptr, uint32_t i) {
+    if (!solution_ptr) {
+        fprintf(stderr, "solution_ptr is NULL in solution_var_is_integer\n");
+        return 0;
+    }
+
+    double xi = gsl_vector_get(solution_ptr->x, i);
     double diff = fabs(xi - round(xi));
     return diff < 1e-8;
 }
 
 // Pretty print
-void solution_print(const solution_t* s, const char* name) {
-    if (!s) {
+void solution_print(const solution_t* solution_ptr, const char* name) {
+    if (!solution_ptr) {
         return;
     }
 
     printf("\n================== %s ==================\n", name);
-    if (s->is_unbounded) {
+    if (solution_ptr->is_unbounded) {
         printf("infinite\n");
     } else {
-        printf("Optimal found in %u iterations (PhaseI %u + PhaseII %u)\nz*: %lf\nx*: (", s->pI_iter + s->pII_iter,
-               s->pI_iter, s->pII_iter, s->z);
+        printf("Optimal found in %u iterations (PhaseI %u + PhaseII %u)\nz*: %lf\nx*: (",
+               solution_ptr->pI_iter + solution_ptr->pII_iter, solution_ptr->pI_iter, solution_ptr->pII_iter,
+               solution_ptr->z);
     }
 
-    if (!s->is_unbounded) {
-        for (uint32_t i = 0; i < s->m; i++) {
-            printf("%.3lf", gsl_vector_get(s->x, i));
-            if (i < s->m - 1) {
+    if (!solution_ptr->is_unbounded) {
+        for (uint32_t i = 0; i < solution_ptr->m; i++) {
+            printf("%.3lf", gsl_vector_get(solution_ptr->x, i));
+            if (i < solution_ptr->m - 1) {
                 printf(", ");
             }
         }
@@ -72,48 +64,57 @@ void solution_print(const solution_t* s, const char* name) {
     }
 }
 
-void solution_free(solution_t** sp) {
-    if (!sp || !*sp) {
+void solution_free(solution_t* solution_ptr) {
+    if (!solution_ptr) {
         return;
     }
 
-    gsl_vector_free((*sp)->x);
-    free(*sp);
-    *sp = NULL;
+    gsl_vector_free(solution_ptr->x);
 }
 
 /* GETTERS */
-
-const gsl_vector* solution_x(const solution_t* s) {
-    return s ? s->x : NULL;
+const gsl_vector* solution_x(const solution_t* solution_ptr) {
+    return solution_ptr ? solution_ptr->x : NULL;
 }
 
-gsl_vector* solution_x_mut(const solution_t* s) {
-    return s ? s->x : NULL;
+gsl_vector* solution_x_mut(solution_t* solution_ptr) {
+    return solution_ptr ? solution_ptr->x : NULL;
 }
 
-double solution_z(const solution_t* s) {
-    return s ? s->z : 0.0;
+double solution_z(const solution_t* solution_ptr) {
+    return solution_ptr ? solution_ptr->z : 0.0;
 }
 
-uint32_t solution_is_unbounded(const solution_t* s) {
-    return s ? s->is_unbounded : 0;
+uint32_t solution_is_unbounded(const solution_t* solution_ptr) {
+    return solution_ptr ? solution_ptr->is_unbounded : 0;
 }
 
-uint32_t solution_pI_iterations(const solution_t* s) {
-    return s ? s->pI_iter : 0;
+uint32_t solution_pI_iterations(const solution_t* solution_ptr) {
+    return solution_ptr ? solution_ptr->pI_iter : 0;
 }
 
-uint32_t solution_pII_iterations(const solution_t* s) {
-    return s ? s->pII_iter : 0;
+uint32_t solution_pII_iterations(const solution_t* solution_ptr) {
+    return solution_ptr ? solution_ptr->pII_iter : 0;
 }
 
 /* SETTERS */
 
-void solution_set_optimal_value(solution_t* s, double optimal_value) {
-    if (!s) {
-        return;
+uint32_t solution_set_optimal_value(solution_t* solution_ptr, double optimal_value) {
+    if (!solution_ptr) {
+        return 0;
     }
 
-    s->z = optimal_value;
+    solution_ptr->z = optimal_value;
+
+    return 1;
+}
+
+uint32_t solution_set_pI_iter(solution_t* solution_ptr, uint32_t pI_iter) {
+    if (!solution_ptr) {
+        return 0;
+    }
+
+    solution_ptr->pI_iter = pI_iter;
+
+    return 1;
 }

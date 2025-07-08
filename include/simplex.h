@@ -9,10 +9,9 @@
 #include <gsl/gsl_vector.h>
 
 // Find problem basis indices with Phase 1 method
-int32_t* simplex_phaseI(uint32_t n, uint32_t m, gsl_matrix* A, gsl_vector* b, variable_t** variables,
-                        uint32_t* pI_iter_ptr);
+int32_t* simplex_phaseI(problem_t* problem_ptr);
 
-// simplex_phaseII method on linear problem p
-solution_t* simplex_phaseII(const problem_t* p);
+uint32_t simplex_phaseII(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
+                         const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr);
 
 #endif
