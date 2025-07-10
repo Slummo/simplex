@@ -2,6 +2,65 @@
 #include <gsl/gsl_linalg.h>
 #include <string.h>
 
+gsl_vector* gsl_vector_from_stream(FILE* stream, char* name, uint32_t capacity, uint32_t size) {
+    if (size > capacity) {
+        fprintf(stderr, "Requested size exceeds capacity in gsl_vector_from_stream for %s\n", name);
+        return NULL;
+    }
+
+    gsl_vector* v = gsl_vector_calloc(capacity);
+    if (!v) {
+        fprintf(stderr, "Failed to allocate gsl_vector %s in gsl_vector_from_stream\n", name);
+        return NULL;
+    }
+
+    if (stream == stdin) {
+        printf("Enter %u values for vector %s: ", size, name);
+        fflush(stdout);
+    }
+
+    for (uint32_t i = 0; i < size; i++) {
+        if (fscanf(stream, "%lf", v->data + i) != 1) {
+            fprintf(stderr, "Failed to read element %u of gsl_vector %s\n", i, name);
+            gsl_vector_free(v);
+            return NULL;
+        }
+    }
+
+    return v;
+}
+
+gsl_matrix* gsl_matrix_from_stream(FILE* stream, char* name, uint32_t row_capacity, uint32_t col_capacity,
+                                   uint32_t rows, uint32_t cols) {
+    if (rows > row_capacity || cols > col_capacity) {
+        fprintf(stderr, "Requested size exceeds capacity in gsl_matrix_from_stream for %s\n", name);
+        return NULL;
+    }
+
+    gsl_matrix* m = gsl_matrix_calloc(row_capacity, col_capacity);
+    if (!m) {
+        fprintf(stderr, "Failed to allocate gsl_matrix %s in gsl_matrix_from_stream\n", name);
+        return NULL;
+    }
+
+    if (stream == stdin) {
+        printf("Enter %ux%u = %u values for matrix %s: ", rows, cols, rows * cols, name);
+        fflush(stdout);
+    }
+
+    for (uint32_t i = 0; i < rows; i++) {
+        for (uint32_t j = 0; j < cols; j++) {
+            if (fscanf(stream, "%lf", m->data + i * m->tda + j) != 1) {
+                fprintf(stderr, "Failed to read element (%u, %u) of gsl_matrix %s\n", i, j, name);
+                gsl_matrix_free(m);
+                return NULL;
+            }
+        }
+    }
+
+    return m;
+}
+
 gsl_vector* vector_duplicate(const gsl_vector* original) {
     if (!original) {
         fprintf(stderr, "Original vector is NULL in vector_duplicate\n");

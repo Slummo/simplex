@@ -3,30 +3,25 @@
 
 #define MAX_ROWS 100
 
-#include "vector.h"
-#include "matrix.h"
 #include "variable.h"
 #include "solution.h"
 #include <stdint.h>
+
+#include <gsl/gsl_vector.h>
+#include <gsl/gsl_matrix.h>
 
 typedef struct problem {
     uint32_t n;         // Number of constraints
     uint32_t m;         // Number of variables
     uint32_t is_max;    // Boolean value to know if its a maximization problem
-    vector_t c;         // Reduced costs (m)
-    matrix_t A;         // Constraints matrix (n x m)
-    vector_t b;         // RHS (n)
+    gsl_vector* c;      // Reduced costs (m)
+    gsl_matrix* A;      // Constraints matrix (n x m)
+    gsl_vector* b;      // RHS (n)
     int32_t* B;         // Indices of basic variables (size n)
     int32_t* N;         // Indices of nonbasic variables (size m-n)
     uint32_t pI_iter;   // Number of iterations to find base with PhaseI
     var_arr_t var_arr;  // Array of variables
 } problem_t;
-
-// uint32_t problem_init(problem_t* problem_ptr, uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gsl_matrix* A,
-//                       gsl_vector* b, int32_t* B, uint32_t pI_iter, variable_t* variables);
-
-// uint32_t problem_init2(problem_t* problem_ptr, uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gsl_matrix* A,
-//                        gsl_vector* b, variable_t* variables);
 
 uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream);
 
@@ -49,16 +44,12 @@ void problem_free(problem_t* problem_ptr);
 uint32_t problem_n(const problem_t* problem_ptr);
 uint32_t problem_m(const problem_t* problem_ptr);
 uint32_t problem_is_max(const problem_t* problem_ptr);
-const vector_t* problem_c(const problem_t* problem_ptr);
-vector_t* problem_c_mut(problem_t* problem_ptr);
-uint32_t problem_c_as_gsl_view(problem_t* problem_ptr, uint32_t offset, uint32_t length, gsl_vector_view* view_ptr);
-const matrix_t* problem_A(const problem_t* problem_ptr);
-matrix_t* problem_A_mut(problem_t* problem_ptr);
-uint32_t problem_A_as_gsl_view(problem_t* problem_ptr, uint32_t row_offset, uint32_t col_offset, uint32_t rows,
-                               uint32_t cols, gsl_matrix_view* view_ptr);
-const vector_t* problem_b(const problem_t* problem_ptr);
-vector_t* problem_b_mut(problem_t* problem_ptr);
-uint32_t problem_b_as_gsl_view(problem_t* problem_ptr, uint32_t offset, uint32_t length, gsl_vector_view* view_ptr);
+const gsl_vector* problem_c(const problem_t* problem_ptr);
+gsl_vector* problem_c_mut(problem_t* problem_ptr);
+const gsl_matrix* problem_A(const problem_t* problem_ptr);
+gsl_matrix* problem_A_mut(problem_t* problem_ptr);
+const gsl_vector* problem_b(const problem_t* problem_ptr);
+gsl_vector* problem_b_mut(problem_t* problem_ptr);
 const int32_t* problem_B(const problem_t* problem_ptr);
 int32_t* problem_B_mut(problem_t* problem_ptr);
 const int32_t* problem_N(const problem_t* problem_ptr);

@@ -5,8 +5,8 @@
 #include <gsl/gsl_linalg.h>
 
 // Find problem basis indices with Phase 1 method
-int32_t* simplex_phaseI(problem_t* problem_ptr) {
-    if (!problem_ptr) {
+int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr) {
+    if (!problem_ptr || !iter_n_ptr) {
         fprintf(stderr, "Some arguments are NULL in simplex_phaseI\n");
         return NULL;
     }
@@ -21,11 +21,6 @@ int32_t* simplex_phaseI(problem_t* problem_ptr) {
     }
 
     if (problem_has_feasible_base(problem_ptr, B)) {
-        printf("B: ");
-        for (uint32_t i = 0; i < n; i++) {
-            printf("%d, ", B[i]);
-        }
-        puts("");
         return B;
     }
 
@@ -37,22 +32,13 @@ int32_t* simplex_phaseI(problem_t* problem_ptr) {
     uint32_t constraints_num = n;
 
     // Get views
-    gsl_vector_view c_view;
-    if (!problem_c_as_gsl_view(problem_ptr, 0, constraints_num, &c_view)) {
-        goto fail;
-    }
+    gsl_vector_view c_view = gsl_vector_subvector(problem_c_mut(problem_ptr), 0, variables_num);
     gsl_vector* c_gsl = &c_view.vector;
 
-    gsl_matrix_view A_view;
-    if (!problem_A_as_gsl_view(problem_ptr, 0, 0, constraints_num, variables_num, &A_view)) {
-        goto fail;
-    }
+    gsl_matrix_view A_view = gsl_matrix_submatrix(problem_A_mut(problem_ptr), 0, 0, constraints_num, variables_num);
     gsl_matrix* A_gsl = &A_view.matrix;
 
-    gsl_vector_view b_view;
-    if (!problem_b_as_gsl_view(problem_ptr, 0, constraints_num, &b_view)) {
-        goto fail;
-    }
+    gsl_vector_view b_view = gsl_vector_subvector(problem_b_mut(problem_ptr), 0, constraints_num);
     gsl_vector* b_gsl = &b_view.vector;
 
     // Set artificial variables' coefficients
@@ -101,10 +87,12 @@ int32_t* simplex_phaseI(problem_t* problem_ptr) {
     // has a feasible base and goes straight to PhaseII
     solution_t phaseI_solution;
     if (!simplex_phaseII(constraints_num, variables_num, problem_is_max(problem_ptr), c_gsl, A_gsl, b_gsl, artificial_B,
-                         artificial_N, &phaseI_solution)) {
+                         artificial_N, &phaseI_solution, iter_n_ptr)) {
         fprintf(stderr, "Failed to create solution for PhaseI problem\n");
         goto fail;
     }
+
+    printf("eddu: %u\n", *iter_n_ptr);
 
     free(artificial_N);
     artificial_N = NULL;
@@ -116,22 +104,22 @@ int32_t* simplex_phaseI(problem_t* problem_ptr) {
     } else {
         const gsl_vector* x = solution_x(&phaseI_solution);
         for (uint32_t i = 0; i < n; i++) {
+            int32_t var_idx = artificial_B[i];
+
             // If the variable in basis is artificial (index >= m), make sure its value is 0
-            if (artificial_B[i] >= (int32_t)m && gsl_vector_get(x, artificial_B[i]) > 0) {
+            if (var_idx >= (int32_t)m && gsl_vector_get(x, var_idx) > 1e-8) {
                 // Infeasible
                 free(B);
                 B = NULL;
                 break;
             }
 
-            B[i] = artificial_B[i];
+            B[i] = var_idx;
         }
     }
 
     free(artificial_B);
     artificial_B = NULL;
-
-    problem_set_pI_iter(problem_ptr, solution_pII_iterations(&phaseI_solution));
 
     solution_free(&phaseI_solution);
 
@@ -145,8 +133,8 @@ fail:
 }
 
 uint32_t simplex_phaseII(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                         const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr) {
-    if (!c || !A || !B || !N || !solution_ptr) {
+                         const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr, uint32_t* iter_n_ptr) {
+    if (!c || !A || !B || !N || !solution_ptr || !iter_n_ptr) {
         fprintf(stderr, "Some arguments are NULL in simplex_phaseII\n");
         return 0;
     }
@@ -167,7 +155,7 @@ uint32_t simplex_phaseII(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vect
         return 0;
     }
 
-    uint32_t pII_iter = 0;
+    uint32_t iter = 0;
     uint32_t unbounded = 0;
     while (1) {
         // Extract Ab matrix and cb vector
@@ -272,10 +260,12 @@ uint32_t simplex_phaseII(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vect
 
         gsl_vector_free(aj);
         gsl_vector_free(d);
-        pII_iter++;
+        iter++;
     }
 
-    uint32_t res = solution_init(solution_ptr, n, m, unbounded, 0, pII_iter);
+    *iter_n_ptr = iter;
+
+    uint32_t res = solution_init(solution_ptr, n, m, unbounded);
 
     // Extract optimal solution and value
     if (res && !solution_is_unbounded(solution_ptr)) {

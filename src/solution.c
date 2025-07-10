@@ -4,8 +4,7 @@
 #include <string.h>
 #include <math.h>
 
-uint32_t solution_init(solution_t* solution_ptr, uint32_t n, uint32_t m, uint32_t is_unbounded, uint32_t pI_iter,
-                       uint32_t pII_iter) {
+uint32_t solution_init(solution_t* solution_ptr, uint32_t n, uint32_t m, uint32_t is_unbounded) {
     if (!solution_ptr) {
         return 0;
     }
@@ -20,8 +19,8 @@ uint32_t solution_init(solution_t* solution_ptr, uint32_t n, uint32_t m, uint32_
     solution_ptr->x = x;
     solution_ptr->z = 0.0;
     solution_ptr->is_unbounded = is_unbounded;
-    solution_ptr->pI_iter = pI_iter;
-    solution_ptr->pII_iter = pII_iter;
+    solution_ptr->pI_iter = 0;
+    solution_ptr->pII_iter = 0;
 
     return 1;
 }
@@ -115,6 +114,16 @@ uint32_t solution_set_pI_iter(solution_t* solution_ptr, uint32_t pI_iter) {
     }
 
     solution_ptr->pI_iter = pI_iter;
+
+    return 1;
+}
+
+uint32_t solution_set_pII_iter(solution_t* solution_ptr, uint32_t pII_iter) {
+    if (!solution_ptr) {
+        return 0;
+    }
+
+    solution_ptr->pII_iter = pII_iter;
 
     return 1;
 }

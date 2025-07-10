@@ -1,7 +1,6 @@
 # Directories
 SRC := src
 INC := include
-LIB := lib
 BLD := build
 OBJ := $(BLD)/obj
 BIN := $(BLD)/bin
@@ -11,8 +10,8 @@ MODEL_FILE_EXT := .txt
 # Compiler and flags
 CC := gcc
 CFLAGS := 
-COMPILE_FLAGS := -Wall  -Wextra -Wshadow -I$(INC) -L$(LIB)
-LIBS := -lc -lgsl -lgslcblas -lm -lrc
+COMPILE_FLAGS := -Wall  -Wextra -Wshadow -I$(INC)
+LIBS := -lc -lgsl -lgslcblas -lm
 
 DEBUG ?= 0
 

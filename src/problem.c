@@ -16,9 +16,9 @@ uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream) {
     uint32_t n;
     uint32_t m;
     uint32_t is_max;
-    vector_t c;
-    matrix_t A;
-    vector_t b;
+    gsl_vector* c = NULL;
+    gsl_matrix* A = NULL;
+    gsl_vector* b = NULL;
     var_arr_t var_arr;
     int32_t* B = NULL;
     int32_t* N = NULL;
@@ -56,15 +56,18 @@ uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream) {
     uint32_t variables_num = m + n;
     uint32_t constraints_num = n;
 
-    if (!vector_from_stream(&c, stream, "c", variables_num, m)) {
+    c = gsl_vector_from_stream(stream, "c", variables_num, m);
+    if (!c) {
         goto fail;
     }
 
-    if (!matrix_from_stream(&A, stream, "A", constraints_num, variables_num, n, m)) {
+    A = gsl_matrix_from_stream(stream, "A", constraints_num, variables_num, n, m);
+    if (!A) {
         goto fail;
     }
 
-    if (!vector_from_stream(&b, stream, "b", constraints_num, n)) {
+    b = gsl_vector_from_stream(stream, "b", constraints_num, n);
+    if (!b) {
         goto fail;
     }
 
@@ -79,14 +82,12 @@ uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream) {
     problem_ptr->A = A;
     problem_ptr->b = b;
     problem_ptr->var_arr = var_arr;
+    problem_ptr->pI_iter = 0;
 
     // Find a base with phaseI
-    B = simplex_phaseI(problem_ptr);
-    if (!B) {
-        goto fail;
-    }
+    B = simplex_phaseI(problem_ptr, &problem_ptr->pI_iter);
 
-    N = calculate_nonbasis(B, n, m);
+    N = calculate_nonbasis(B, n, m + n);
     if (!N) {
         goto fail;
     }
@@ -101,9 +102,9 @@ uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream) {
     return 1;
 
 fail:
-    vector_free(&c);
-    matrix_free(&A);
-    vector_free(&b);
+    gsl_vector_free(c);
+    gsl_matrix_free(A);
+    gsl_vector_free(b);
     var_arr_free(&var_arr);
     free(B);
     free(N);
@@ -129,7 +130,7 @@ uint32_t problem_is_milp(const problem_t* problem_ptr) {
 }
 
 /// @brief Checks if a problem has a feasible base. If not the B array is memset to 0
-/// @param problem_ptr A const pointer to the problem to checl
+/// @param problem_ptr A const pointer to the problem to check
 /// @param B A dinamically allocated basis indices array
 /// @return 1 if the problem has a feasible base else 0
 uint32_t problem_has_feasible_base(const problem_t* problem_ptr, int32_t* B) {
@@ -146,12 +147,12 @@ uint32_t problem_has_feasible_base(const problem_t* problem_ptr, int32_t* B) {
     }
 
     // Check for identity
-    const matrix_t* A = problem_A(problem_ptr);
+    const gsl_matrix* A = problem_A(problem_ptr);
     for (uint32_t j = 0; j < m; j++) {
         int32_t pivot_row = -1;
         uint32_t valid = 1;
         for (uint32_t i = 0; i < n; i++) {
-            double aij = matrix_get(A, i, j);
+            double aij = gsl_matrix_get(A, i, j);
             if (aij == 1.0) {
                 if (pivot_row == -1) {
                     pivot_row = (int32_t)i;
@@ -170,10 +171,10 @@ uint32_t problem_has_feasible_base(const problem_t* problem_ptr, int32_t* B) {
     }
 
     // Check if base is feasible
-    const vector_t* b = problem_b(problem_ptr);
+    const gsl_vector* b = problem_b(problem_ptr);
     uint32_t is_feasible = 1;
     for (uint32_t i = 0; is_feasible && i < n; i++) {
-        if (B[i] == -1 || vector_get(b, i) < 0) {
+        if (B[i] == -1 || gsl_vector_get(b, i) < 0) {
             is_feasible = 0;
         }
     }
@@ -191,26 +192,23 @@ uint32_t solve_with_simplex(problem_t* problem_ptr, solution_t* solution_ptr) {
     uint32_t is_max = problem_is_max(problem_ptr);
 
     // Get views
-    gsl_vector_view c_view;
-    if (!problem_c_as_gsl_view(problem_ptr, 0, m, &c_view)) {
-        return 0;
-    }
+    gsl_vector_view c_view = gsl_vector_subvector(problem_c_mut(problem_ptr), 0, m);
     gsl_vector* c_gsl = &c_view.vector;
 
-    gsl_matrix_view A_view;
-    if (!problem_A_as_gsl_view(problem_ptr, 0, 0, n, m, &A_view)) {
-        return 0;
-    }
+    gsl_matrix_view A_view = gsl_matrix_submatrix(problem_A_mut(problem_ptr), 0, 0, n, m);
     gsl_matrix* A_gsl = &A_view.matrix;
 
-    gsl_vector_view b_view;
-    if (!problem_b_as_gsl_view(problem_ptr, 0, n, &b_view)) {
-        return 0;
-    }
+    gsl_vector_view b_view = gsl_vector_subvector(problem_b_mut(problem_ptr), 0, n);
     gsl_vector* b_gsl = &b_view.vector;
 
-    return simplex_phaseII(n, m, is_max, c_gsl, A_gsl, b_gsl, problem_B_mut(problem_ptr), problem_N_mut(problem_ptr),
-                           solution_ptr);
+    uint32_t iter_n = 0;
+    uint32_t res = simplex_phaseII(n, m, is_max, c_gsl, A_gsl, b_gsl, problem_B_mut(problem_ptr),
+                                   problem_N_mut(problem_ptr), solution_ptr, &iter_n);
+
+    solution_set_pI_iter(solution_ptr, problem_pI_iter(problem_ptr));
+    solution_set_pII_iter(solution_ptr, iter_n);
+
+    return res;
 }
 
 #define TERM_WIDTH 8
@@ -248,24 +246,24 @@ void problem_print(const problem_t* problem_ptr, const char* name) {
     printf("%s z = ", problem_ptr->is_max ? "max" : "min");
 
     // Objective function
-    const vector_t* c = &problem_ptr->c;
+    const gsl_vector* c = problem_ptr->c;
     for (uint32_t i = 0; i < problem_ptr->m; i++) {
-        double ci = vector_get(c, i);
+        double ci = gsl_vector_get(c, i);
         print_coefficient(ci, i, i == 0);
     }
     printf("\n\nconstraints:\n");
 
     // Constraints
-    const matrix_t* A = &problem_ptr->A;
-    const vector_t* b = &problem_ptr->b;
+    const gsl_matrix* A = problem_ptr->A;
+    const gsl_vector* b = problem_ptr->b;
     for (uint32_t i = 0; i < problem_ptr->n; i++) {
         printf("\t");
         for (uint32_t j = 0; j < problem_ptr->m; j++) {
-            double aij = matrix_get(A, i, j);
+            double aij = gsl_matrix_get(A, i, j);
             print_coefficient(aij, j, j == 0);
         }
 
-        double bi = vector_get(b, i);
+        double bi = gsl_vector_get(b, i);
         printf(" = ");
         if (fabs(bi - (int32_t)bi) < 1e-9) {
             printf("%d", (int32_t)bi);
@@ -289,9 +287,9 @@ void problem_free(problem_t* problem_ptr) {
         return;
     }
 
-    vector_free(&problem_ptr->c);
-    matrix_free(&problem_ptr->A);
-    vector_free(&problem_ptr->b);
+    gsl_vector_free(problem_ptr->c);
+    gsl_matrix_free(problem_ptr->A);
+    gsl_vector_free(problem_ptr->b);
     free(problem_ptr->B);
     free(problem_ptr->N);
     var_arr_free(&problem_ptr->var_arr);
@@ -311,41 +309,28 @@ uint32_t problem_is_max(const problem_t* problem_ptr) {
     return problem_ptr ? problem_ptr->is_max : 0;
 }
 
-const vector_t* problem_c(const problem_t* problem_ptr) {
-    return problem_ptr ? &problem_ptr->c : NULL;
+const gsl_vector* problem_c(const problem_t* problem_ptr) {
+    return problem_ptr ? problem_ptr->c : NULL;
 }
 
-vector_t* problem_c_mut(problem_t* problem_ptr) {
-    return problem_ptr ? &problem_ptr->c : NULL;
+gsl_vector* problem_c_mut(problem_t* problem_ptr) {
+    return problem_ptr ? problem_ptr->c : NULL;
 }
 
-uint32_t problem_c_as_gsl_view(problem_t* problem_ptr, uint32_t offset, uint32_t length, gsl_vector_view* view_ptr) {
-    return vector_as_gsl_view(&problem_ptr->c, offset, length, view_ptr);
+const gsl_matrix* problem_A(const problem_t* problem_ptr) {
+    return problem_ptr ? problem_ptr->A : NULL;
 }
 
-const matrix_t* problem_A(const problem_t* problem_ptr) {
-    return problem_ptr ? &problem_ptr->A : NULL;
+gsl_matrix* problem_A_mut(problem_t* problem_ptr) {
+    return problem_ptr ? problem_ptr->A : NULL;
 }
 
-matrix_t* problem_A_mut(problem_t* problem_ptr) {
-    return problem_ptr ? &problem_ptr->A : NULL;
+const gsl_vector* problem_b(const problem_t* problem_ptr) {
+    return problem_ptr ? problem_ptr->b : NULL;
 }
 
-uint32_t problem_A_as_gsl_view(problem_t* problem_ptr, uint32_t row_offset, uint32_t col_offset, uint32_t rows,
-                               uint32_t cols, gsl_matrix_view* view_ptr) {
-    return matrix_as_gsl_view(&problem_ptr->A, row_offset, col_offset, rows, cols, view_ptr);
-}
-
-const vector_t* problem_b(const problem_t* problem_ptr) {
-    return problem_ptr ? &problem_ptr->b : NULL;
-}
-
-vector_t* problem_b_mut(problem_t* problem_ptr) {
-    return problem_ptr ? &problem_ptr->b : NULL;
-}
-
-uint32_t problem_b_as_gsl_view(problem_t* problem_ptr, uint32_t offset, uint32_t length, gsl_vector_view* view_ptr) {
-    return vector_as_gsl_view(&problem_ptr->b, offset, length, view_ptr);
+gsl_vector* problem_b_mut(problem_t* problem_ptr) {
+    return problem_ptr ? problem_ptr->b : NULL;
 }
 
 const int32_t* problem_B(const problem_t* problem_ptr) {

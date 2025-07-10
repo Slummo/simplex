@@ -5,8 +5,9 @@
 #include <gsl/gsl_matrix.h>
 #include <stdint.h>
 
-double* vector_read(FILE* stream, char* name, size_t capacity, size_t size);
-double* matrix_read(FILE* stream, char* name, size_t row_capacity, size_t col_capacity, size_t rows, size_t cols);
+gsl_vector* gsl_vector_from_stream(FILE* stream, char* name, uint32_t capacity, uint32_t size);
+gsl_matrix* gsl_matrix_from_stream(FILE* stream, char* name, uint32_t row_capacity, uint32_t col_capacity,
+                                   uint32_t rows, uint32_t cols);
 
 gsl_vector* vector_duplicate(const gsl_vector* original);
 gsl_matrix* matrix_duplicate(const gsl_matrix* original);

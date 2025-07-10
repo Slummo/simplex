@@ -14,8 +14,7 @@ typedef struct solution {
     uint32_t pII_iter;      // Number of iterations of PhaseII to find solution
 } solution_t;
 
-uint32_t solution_init(solution_t* solution_ptr, uint32_t n, uint32_t m, uint32_t is_unbounded, uint32_t pI_iter,
-                       uint32_t pII_iter);
+uint32_t solution_init(solution_t* solution_ptr, uint32_t n, uint32_t m, uint32_t is_unbounded);
 
 // Checks if the i-th component of the solution is an integer
 uint32_t solution_var_is_integer(const solution_t* solution_ptr, uint32_t i);
@@ -36,5 +35,6 @@ uint32_t solution_pII_iterations(const solution_t* solution_ptr);
 /* SETTERS */
 uint32_t solution_set_optimal_value(solution_t* solution_ptr, double optimal_value);
 uint32_t solution_set_pI_iter(solution_t* solution_ptr, uint32_t pI_iter);
+uint32_t solution_set_pII_iter(solution_t* solution_ptr, uint32_t pII_iter);
 
 #endif
