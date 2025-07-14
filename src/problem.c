@@ -129,10 +129,11 @@ uint32_t problem_is_milp(const problem_t* problem_ptr) {
     return 0;
 }
 
-/// @brief Checks if a problem has a feasible base. If not the B array is memset to 0
+/// @brief Checks if a problem has a feasible base. If not, the B array is zeroed.
 /// @param problem_ptr A const pointer to the problem to check
-/// @param B A dinamically allocated basis indices array
-/// @return 1 if the problem has a feasible base else 0
+/// @param B           A dynamically allocated array of length n; on success B[i]=j
+///                    is the column index of the basis variable for row i.
+/// @return 1 if the problem has a feasible base, else 0
 uint32_t problem_has_feasible_base(const problem_t* problem_ptr, int32_t* B) {
     if (!problem_ptr || !B) {
         return 0;
@@ -141,40 +142,49 @@ uint32_t problem_has_feasible_base(const problem_t* problem_ptr, int32_t* B) {
     uint32_t n = problem_n(problem_ptr);
     uint32_t m = problem_m(problem_ptr);
 
-    // Initialize basis indices to -1
-    for (uint32_t i = 0; i < n; i++) {
-        B[i] = -1;
+    int8_t* pivot_sign = (int8_t*)malloc(sizeof(int8_t) * n);
+    if (!pivot_sign) {
+        return 0;
     }
 
-    // Check for identity
+    // Initialize
+    for (uint32_t i = 0; i < n; i++) {
+        B[i] = -1;
+        pivot_sign[i] = 0;
+    }
+
+    // Check for diagonal "identity" matrix with +-1
     const gsl_matrix* A = problem_A(problem_ptr);
     for (uint32_t j = 0; j < m; j++) {
         int32_t pivot_row = -1;
-        uint32_t valid = 1;
-        for (uint32_t i = 0; i < n; i++) {
+        int valid = 1;
+
+        for (uint32_t i = 0; valid && i < n; i++) {
             double aij = gsl_matrix_get(A, i, j);
-            if (aij == 1.0) {
-                if (pivot_row == -1) {
-                    pivot_row = (int32_t)i;
+            if (aij == 1.0 || aij == -1.0) {
+                if (pivot_row < 0) {
+                    pivot_row = i;
+                    pivot_sign[i] = (int8_t)aij;
                 } else {
-                    valid = 0;
-                    break;
+                    valid = 0;  // more than one nonzero
                 }
             } else if (aij != 0.0) {
                 valid = 0;
-                break;
             }
         }
-        if (valid && pivot_row != -1 && B[pivot_row] == -1) {
-            B[pivot_row] = j;
+
+        // If exactly one +-1 and that row has no basis yet then assign
+        if (valid && pivot_row >= 0 && B[pivot_row] < 0) {
+            B[pivot_row] = (int32_t)j;
         }
     }
 
-    // Check if base is feasible
+    // Check feasibility: for each basic row i,
+    //    pivot_sign[i] * b[i]  must be >= 0
     const gsl_vector* b = problem_b(problem_ptr);
     uint32_t is_feasible = 1;
     for (uint32_t i = 0; is_feasible && i < n; i++) {
-        if (B[i] == -1 || gsl_vector_get(b, i) < 0) {
+        if (B[i] < 0 || pivot_sign[i] * gsl_vector_get(b, i) < 0) {
             is_feasible = 0;
         }
     }
@@ -183,6 +193,7 @@ uint32_t problem_has_feasible_base(const problem_t* problem_ptr, int32_t* B) {
         memset(B, 0, sizeof(int32_t) * n);
     }
 
+    free(pivot_sign);
     return is_feasible;
 }
 
