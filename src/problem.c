@@ -187,25 +187,29 @@ uint32_t problem_has_feasible_base(const problem_t* problem_ptr, int32_t* B) {
 }
 
 uint32_t solve_with_simplex(problem_t* problem_ptr, solution_t* solution_ptr) {
-    uint32_t n = problem_n(problem_ptr);
-    uint32_t m = problem_m(problem_ptr);
-    uint32_t is_max = problem_is_max(problem_ptr);
+    if (!problem_ptr || !solution_ptr) {
+        return 0;
+    }
+
+    uint32_t n = problem_ptr->n;
+    uint32_t m = problem_ptr->m;
+    uint32_t is_max = problem_ptr->is_max;
 
     // Get views
-    gsl_vector_view c_view = gsl_vector_subvector(problem_c_mut(problem_ptr), 0, m);
+    gsl_vector_view c_view = gsl_vector_subvector(problem_ptr->c, 0, m);
     gsl_vector* c_gsl = &c_view.vector;
 
-    gsl_matrix_view A_view = gsl_matrix_submatrix(problem_A_mut(problem_ptr), 0, 0, n, m);
+    gsl_matrix_view A_view = gsl_matrix_submatrix(problem_ptr->A, 0, 0, n, m);
     gsl_matrix* A_gsl = &A_view.matrix;
 
-    gsl_vector_view b_view = gsl_vector_subvector(problem_b_mut(problem_ptr), 0, n);
+    gsl_vector_view b_view = gsl_vector_subvector(problem_ptr->b, 0, n);
     gsl_vector* b_gsl = &b_view.vector;
 
     uint32_t iter_n = 0;
-    uint32_t res = simplex_phaseII(n, m, is_max, c_gsl, A_gsl, b_gsl, problem_B_mut(problem_ptr),
-                                   problem_N_mut(problem_ptr), solution_ptr, &iter_n);
+    uint32_t res =
+        simplex_phaseII(n, m, is_max, c_gsl, A_gsl, b_gsl, problem_ptr->B, problem_ptr->N, solution_ptr, &iter_n);
 
-    solution_set_pI_iter(solution_ptr, problem_pI_iter(problem_ptr));
+    solution_set_pI_iter(solution_ptr, problem_ptr->pI_iter);
     solution_set_pII_iter(solution_ptr, iter_n);
 
     return res;

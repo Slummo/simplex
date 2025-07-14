@@ -13,6 +13,10 @@ int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr) {
 
     uint32_t m = problem_m(problem_ptr);
     uint32_t n = problem_n(problem_ptr);
+    uint32_t is_max = problem_is_max(problem_ptr);
+    gsl_vector* c = problem_c_mut(problem_ptr);
+    gsl_matrix* A = problem_A_mut(problem_ptr);
+    gsl_vector* b = problem_b_mut(problem_ptr);
 
     int32_t* B = (int32_t*)malloc(sizeof(int32_t) * n);
     if (!B) {
@@ -31,21 +35,6 @@ int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr) {
     uint32_t variables_num = m + n;
     uint32_t constraints_num = n;
 
-    // Get views
-    gsl_vector_view c_view = gsl_vector_subvector(problem_c_mut(problem_ptr), 0, variables_num);
-    gsl_vector* c_gsl = &c_view.vector;
-
-    gsl_matrix_view A_view = gsl_matrix_submatrix(problem_A_mut(problem_ptr), 0, 0, constraints_num, variables_num);
-    gsl_matrix* A_gsl = &A_view.matrix;
-
-    gsl_vector_view b_view = gsl_vector_subvector(problem_b_mut(problem_ptr), 0, constraints_num);
-    gsl_vector* b_gsl = &b_view.vector;
-
-    // Set artificial variables' coefficients
-    for (uint32_t i = m; i < variables_num; i++) {
-        gsl_vector_set(c_gsl, i, -1.0);
-    }
-
     artificial_B = (int32_t*)malloc(sizeof(int32_t) * n);
     if (!artificial_B) {
         fprintf(stderr, "Failed to allocate array of artificial base indices for PhaseI\n");
@@ -63,14 +52,19 @@ int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr) {
         goto fail;
     }
 
-    // Add values for artificial variables on each row
+    // Set the costs for the artificial variables
+    for (uint32_t i = m; i < variables_num; i++) {
+        gsl_vector_set(c, i, is_max ? -1.0 : 1.0);
+    }
+
+    // Add values for artificial variables on each row of the A matrix
     for (uint32_t i = 0; i < n; i++) {
         for (uint32_t j = m; j < variables_num; j++) {
             if (j == m + i) {
                 // Artificial variable in column m + i
-                gsl_matrix_set(A_gsl, i, j, 1.0);
+                gsl_matrix_set(A, i, j, 1.0);
             } else {
-                gsl_matrix_set(A_gsl, i, j, 0.0);
+                gsl_matrix_set(A, i, j, 0.0);
             }
         }
     }
@@ -85,14 +79,13 @@ int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr) {
 
     // The PhaseI problem doesn't need another PhaseI, it always
     // has a feasible base and goes straight to PhaseII
+    *iter_n_ptr = 0;
     solution_t phaseI_solution;
-    if (!simplex_phaseII(constraints_num, variables_num, problem_is_max(problem_ptr), c_gsl, A_gsl, b_gsl, artificial_B,
-                         artificial_N, &phaseI_solution, iter_n_ptr)) {
-        fprintf(stderr, "Failed to create solution for PhaseI problem\n");
+    if (!simplex_phaseII(constraints_num, variables_num, is_max, c, A, b, artificial_B, artificial_N, &phaseI_solution,
+                         iter_n_ptr)) {
+        fprintf(stderr, "Failed to run simplex on PhaseI\n");
         goto fail;
     }
-
-    printf("eddu: %u\n", *iter_n_ptr);
 
     free(artificial_N);
     artificial_N = NULL;
@@ -155,7 +148,7 @@ uint32_t simplex_phaseII(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vect
         return 0;
     }
 
-    uint32_t iter = 0;
+    *iter_n_ptr = 0;
     uint32_t unbounded = 0;
     while (1) {
         // Extract Ab matrix and cb vector
@@ -260,15 +253,12 @@ uint32_t simplex_phaseII(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vect
 
         gsl_vector_free(aj);
         gsl_vector_free(d);
-        iter++;
+
+        (*iter_n_ptr)++;
     }
 
-    *iter_n_ptr = iter;
-
-    uint32_t res = solution_init(solution_ptr, n, m, unbounded);
-
     // Extract optimal solution and value
-    if (res && !solution_is_unbounded(solution_ptr)) {
+    if (solution_init(solution_ptr, n, m, unbounded) && !solution_is_unbounded(solution_ptr)) {
         gsl_vector* x = solution_x_mut(solution_ptr);
         double z = 0.0;
         for (uint32_t i = 0; i < n; i++) {
