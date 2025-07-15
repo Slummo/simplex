@@ -14,8 +14,8 @@ typedef struct problem {
     uint32_t n;         // Number of constraints
     uint32_t m;         // Number of variables
     uint32_t is_max;    // Boolean value to know if its a maximization problem
-    gsl_vector* c;      // Reduced costs (m)
-    gsl_matrix* A;      // Constraints matrix (n x m)
+    gsl_vector* c;      // Reduced costs (m + n) (note: augmented for phaseI)
+    gsl_matrix* A;      // Constraints matrix (n x m + n) (note: augmented for phaseI)
     gsl_vector* b;      // RHS (n)
     int32_t* B;         // Indices of basic variables (size n)
     int32_t* N;         // Indices of nonbasic variables (size m-n)
@@ -27,14 +27,21 @@ uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream);
 
 uint32_t problem_is_milp(const problem_t* problem_ptr);
 
+// Choses a non-integer variable to start branching from.
+// Returns -2 on error, -1 if the solution contains only
+// integers or the index of the first non-integer
+// variable on success
+int32_t problem_select_branch_var(const problem_t* problem_ptr, const solution_t* current_sol_ptr);
+
 // Pretty print
 void problem_print(const problem_t* problem_ptr, const char* name);
 
-/// @brief Checks if a problem has a feasible base
-/// @param problem_ptr A const pointer to the problem to checl
-/// @param B A dinamically allocated basis indices array
-/// @return 1 if the problem has a feasible base else 0
-uint32_t problem_has_feasible_base(const problem_t* problem_ptr, int32_t* B);
+/// @brief Checks if a problem has a primal-feasible base. If not, the B array is zeroed.
+/// @param problem_ptr A const pointer to the problem to check
+/// @param B           A dynamically allocated array of length n; on success B[i]=j
+///                    is the column index of the basis variable for row i.
+/// @return 1 if the problem has a primal-feasible base, else 0
+uint32_t problem_has_primal_feasible_base(const problem_t* problem_ptr, int32_t* B);
 
 uint32_t solve_with_simplex(problem_t* problem_ptr, solution_t* solution_ptr);
 

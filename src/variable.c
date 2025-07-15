@@ -52,6 +52,18 @@ variable_t variable_copy(variable_t other) {
     return other;
 }
 
+uint32_t variable_is_real(const variable_t* variable_ptr) {
+    return variable_ptr->type == VAR_REAL;
+}
+
+uint32_t variable_is_integer(const variable_t* variable_ptr) {
+    return variable_ptr->type == VAR_INTEGER;
+}
+
+uint32_t variable_is_binary(const variable_t* variable_ptr) {
+    return variable_ptr->type == VAR_BINARY;
+}
+
 void variable_print(const variable_t* v) {
     if (!v) {
         return;
@@ -146,7 +158,14 @@ const variable_t* var_arr_get(const var_arr_t* array_ptr, uint32_t i) {
     return NULL;
 }
 
-// Takes ownership of *variable_ptr
+uint32_t var_arr_length(const var_arr_t* array_ptr) {
+    return array_ptr ? array_ptr->length : 0;
+}
+
+uint32_t var_arr_capacity(const var_arr_t* array_ptr) {
+    return array_ptr ? array_ptr->capacity : 0;
+}
+
 uint32_t var_arr_push(var_arr_t* array_ptr, variable_t* variable_ptr) {
     if (!array_ptr || array_ptr->length >= array_ptr->capacity || !variable_ptr) {
         return 0;

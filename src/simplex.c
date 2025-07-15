@@ -24,7 +24,7 @@ int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr) {
         return NULL;
     }
 
-    if (problem_has_feasible_base(problem_ptr, B)) {
+    if (problem_has_primal_feasible_base(problem_ptr, B)) {
         return B;
     }
 
@@ -58,15 +58,8 @@ int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr) {
     }
 
     // Add values for artificial variables on each row of the A matrix
-    for (uint32_t i = 0; i < n; i++) {
-        for (uint32_t j = m; j < variables_num; j++) {
-            if (j == m + i) {
-                // Artificial variable in column m + i
-                gsl_matrix_set(A, i, j, 1.0);
-            } else {
-                gsl_matrix_set(A, i, j, 0.0);
-            }
-        }
+    for (uint32_t i = 0; i < constraints_num; i++) {
+        gsl_matrix_set(A, i, m + i, 1.0);
     }
 
     var_arr_t* var_arr_ptr = problem_var_arr_mut(problem_ptr);
@@ -81,8 +74,8 @@ int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr) {
     // has a feasible base and goes straight to PhaseII
     *iter_n_ptr = 0;
     solution_t phaseI_solution;
-    if (!simplex_phaseII(constraints_num, variables_num, is_max, c, A, b, artificial_B, artificial_N, &phaseI_solution,
-                         iter_n_ptr)) {
+    if (!simplex_primal(constraints_num, variables_num, is_max, c, A, b, artificial_B, artificial_N, &phaseI_solution,
+                        iter_n_ptr)) {
         fprintf(stderr, "Failed to run simplex on PhaseI\n");
         goto fail;
     }
@@ -125,156 +118,346 @@ fail:
     return NULL;
 }
 
-uint32_t simplex_phaseII(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                         const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr, uint32_t* iter_n_ptr) {
-    if (!c || !A || !B || !N || !solution_ptr || !iter_n_ptr) {
-        fprintf(stderr, "Some arguments are NULL in simplex_phaseII\n");
+void extract_basic_objects(uint32_t n, uint32_t is_max, int32_t* B, const gsl_vector* c, const gsl_matrix* A,
+                           gsl_vector* cB, gsl_matrix* AB) {
+    for (uint32_t i = 0; i < n; i++) {
+        for (uint32_t j = 0; j < n; j++) {
+            // Basis indices must be valid column indices
+            gsl_matrix_set(AB, i, j, gsl_matrix_get(A, i, B[j]));
+        }
+        double ci = gsl_vector_get(c, B[i]);
+        gsl_vector_set(cB, i, is_max ? ci : -ci);
+    }
+}
+
+gsl_matrix* inverse(const gsl_matrix* base, size_t size) {
+    gsl_matrix* inverse = gsl_matrix_alloc(size, size);
+    if (!inverse) {
+        return NULL;
+    }
+
+    gsl_permutation* p = gsl_permutation_alloc(size);
+    if (!p) {
+        gsl_matrix_free(inverse);
+        return NULL;
+    }
+
+    int signum;
+    gsl_matrix_memcpy(inverse, base);
+    gsl_linalg_LU_decomp(inverse, p, &signum);
+    gsl_linalg_LU_invert(inverse, p, inverse);
+
+    gsl_permutation_free(p);
+
+    return inverse;
+}
+
+void compute_basic_solution(const gsl_matrix* AB_inv, const gsl_vector* b, gsl_vector* xB) {
+    gsl_blas_dgemv(CblasNoTrans, 1.0, AB_inv, b, 0.0, xB);
+}
+
+void compute_reduced_costs(uint32_t n, uint32_t m, uint32_t is_max, int32_t* N, const gsl_vector* c, gsl_vector* cB,
+                           gsl_vector* cN, const gsl_matrix* A, const gsl_matrix* AB_inv, gsl_vector* r) {
+    for (uint32_t i = 0; i < (m - n); i++) {
+        uint32_t j = N[i];
+
+        // cN[i] = cj
+        double cj = gsl_vector_get(c, j);
+        gsl_vector_set(cN, i, is_max ? cj : -cj);
+
+        // Aj
+        gsl_vector* Aj = gsl_vector_alloc(n);
+        for (uint32_t k = 0; k < n; k++) {
+            gsl_vector_set(Aj, k, gsl_matrix_get(A, k, j));
+        }
+
+        // AB_inv * Aj
+        gsl_vector* Ab_inv_aj = gsl_vector_alloc(n);
+        gsl_blas_dgemv(CblasNoTrans, 1.0, AB_inv, Aj, 0.0, Ab_inv_aj);
+
+        // r[i] = rj = cj - cB * AB_inv * Aj
+        double res;
+        gsl_blas_ddot(cB, Ab_inv_aj, &res);
+        gsl_vector_set(r, i, gsl_vector_get(cN, i) - res);
+
+        gsl_vector_free(Aj);
+        gsl_vector_free(Ab_inv_aj);
+    }
+}
+
+uint32_t extract_column(const gsl_matrix* m, uint32_t j, gsl_vector* col) {
+    if (!m || !col) {
         return 0;
     }
 
-    gsl_matrix* Ab = gsl_matrix_alloc(n, n);
-    gsl_matrix* Ab_inv = NULL;
+    for (uint32_t i = 0; i < col->size; i++) {
+        gsl_vector_set(col, i, gsl_matrix_get(m, i, j));
+    }
+
+    return 1;
+}
+
+uint32_t extract_row(const gsl_matrix* m, uint32_t i, gsl_vector* row) {
+    if (!m || !row) {
+        return 0;
+    }
+
+    for (uint32_t j = 0; j < row->size; j++) {
+        gsl_vector_set(row, j, gsl_matrix_get(m, i, j));
+    }
+
+    return 1;
+}
+
+void pivot(int32_t entering, int32_t leaving, int32_t* B, int32_t* N) {
+    uint32_t tmp = B[leaving];
+    B[leaving] = N[entering];
+    N[entering] = tmp;
+}
+
+void extract_optimal(uint32_t n, uint32_t is_max, int32_t* B, gsl_vector* xB, const gsl_vector* c,
+                     solution_t* solution_ptr) {
+    gsl_vector* x = solution_x_mut(solution_ptr);
+    double z = 0.0;
+    for (uint32_t i = 0; i < n; i++) {
+        gsl_vector_set(x, B[i], gsl_vector_get(xB, i));
+    }
+
+    gsl_blas_ddot(c, x, &z);
+    solution_set_optimal_value(solution_ptr, is_max ? z : -z);
+}
+
+uint32_t simplex_primal(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
+                        const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr, uint32_t* iter_n_ptr) {
+    if (!c || !A || !B || !N || !solution_ptr || !iter_n_ptr) {
+        fprintf(stderr, "Some arguments are NULL in simplex_primal\n");
+        return 0;
+    }
+
+    uint32_t ret = 1;
+
+    gsl_matrix* AB = gsl_matrix_alloc(n, n);
+    gsl_matrix* AB_inv = NULL;
     gsl_vector* xB = gsl_vector_alloc(n);
-    gsl_vector* cb = gsl_vector_alloc(n);
-    gsl_vector* cn = gsl_vector_alloc(m - n);
+    gsl_vector* cB = gsl_vector_alloc(n);
+    gsl_vector* cN = gsl_vector_alloc(m - n);
     gsl_vector* r = gsl_vector_alloc(m - n);
 
-    if (!Ab || !xB || !cb || !cn || !r) {
-        gsl_matrix_free(Ab);
-        gsl_vector_free(xB);
-        gsl_vector_free(cb);
-        gsl_vector_free(cn);
-        gsl_vector_free(r);
-        return 0;
+    if (!AB || !xB || !cB || !cN || !r) {
+        goto fail;
     }
 
     *iter_n_ptr = 0;
     uint32_t unbounded = 0;
     while (1) {
-        // Extract Ab matrix and cb vector
-        for (uint32_t i = 0; i < n; i++) {
-            for (uint32_t j = 0; j < n; j++) {
-                // Basis indices must be valid column indices
-                gsl_matrix_set(Ab, i, j, gsl_matrix_get(A, i, B[j]));
-            }
-            double ci = gsl_vector_get(c, B[i]);
-            gsl_vector_set(cb, i, is_max ? ci : -ci);
-        }
+        // Extract AB matrix and cB vector
+        extract_basic_objects(n, is_max, B, c, A, cB, AB);
 
-        // Compute the inverse of Ab
-        gsl_matrix* old = Ab_inv;
-        Ab_inv = inverse(Ab, n);
+        // Compute AB_inv = AB^-1
+        gsl_matrix* old = AB_inv;
+        AB_inv = inverse(AB, n);
         gsl_matrix_free(old);
-
-        // Compute xB = Ab_inv * b
-        gsl_blas_dgemv(CblasNoTrans, 1.0, Ab_inv, b, 0.0, xB);
-
-        // Compute reduced costs for all nonbasis variables
-        for (uint32_t i = 0; i < (m - n); i++) {
-            uint32_t j = N[i];
-
-            // cn[i] = cj
-            double cj = gsl_vector_get(c, j);
-            gsl_vector_set(cn, i, is_max ? cj : -cj);
-
-            // aj
-            gsl_vector* aj = gsl_vector_alloc(n);
-
-            for (uint32_t k = 0; k < n; k++) {
-                gsl_vector_set(aj, k, gsl_matrix_get(A, k, j));
-            }
-
-            // Ab_inv * aj
-            gsl_vector* Ab_inv_aj = gsl_vector_alloc(n);
-
-            gsl_blas_dgemv(CblasNoTrans, 1.0, Ab_inv, aj, 0.0, Ab_inv_aj);
-
-            // r[i] = rj = cj - cb * Ab_inv * aj
-            double dot;
-            gsl_blas_ddot(cb, Ab_inv_aj, &dot);
-            gsl_vector_set(r, i, gsl_vector_get(cn, i) - dot);
-
-            gsl_vector_free(aj);
-            gsl_vector_free(Ab_inv_aj);
+        if (!AB_inv) {
+            goto fail;
         }
+
+        // Compute xB = AB_inv * b
+        compute_basic_solution(AB_inv, b, xB);
+
+        // For all non-basic variables
+        compute_reduced_costs(n, m, is_max, N, c, cB, cN, A, AB_inv, r);
 
         // Choose the entering variable
-        int32_t entering = -1;
+        int32_t q = -1;
         for (uint32_t i = 0; i < (m - n); i++) {
             if (gsl_vector_get(r, i) > 0) {
-                entering = i;
+                q = i;
                 break;  // Bland's rule: choose first positive reduced cost
             }
         }
 
-        if (entering == -1) {
+        if (q == -1) {
             break;  // Optimal
         }
 
-        // Extract column j of A
-        uint32_t j = N[entering];
-        gsl_vector* aj = gsl_vector_alloc(n);
-        for (uint32_t k = 0; k < n; k++) {
-            gsl_vector_set(aj, k, gsl_matrix_get(A, k, j));
+        // Aq
+        gsl_vector* Aq = gsl_vector_alloc(n);
+        if (!extract_column(A, (uint32_t)N[q], Aq)) {
+            goto fail;
         }
 
-        // Compute direction vector d = -Ab_inv * aj
+        // Compute direction vector d = -AB_inv * Aq
         gsl_vector* d = gsl_vector_alloc(n);
-
-        gsl_matrix_scale(Ab_inv, -1.0);
-        gsl_blas_dgemv(CblasNoTrans, 1.0, Ab_inv, aj, 0.0, d);
+        gsl_matrix_scale(AB_inv, -1.0);
+        gsl_blas_dgemv(CblasNoTrans, 1.0, AB_inv, Aq, 0.0, d);
 
         // Choose leaving variable
         double min_ratio = 1e20;
-        int32_t leaving = -1;
+        int32_t p = -1;
         for (uint32_t i = 0; i < n; i++) {
             double di = gsl_vector_get(d, i);
             // Only include variables with negative direction coefficient
-            if (di < 0) {
+            if (di < 0.0) {
                 double ratio = -gsl_vector_get(xB, i) / di;
                 if (ratio < min_ratio) {
                     min_ratio = ratio;
-                    leaving = i;
+                    p = i;
                 }
             }
         }
 
-        if (leaving == -1) {
+        // Unbounded
+        if (p == -1) {
             unbounded = 1;
-            gsl_vector_free(aj);
+            gsl_vector_free(Aq);
             gsl_vector_free(d);
             break;
         }
 
-        // Switch entering and leaving variables
-        uint32_t tmp = B[leaving];
-        B[leaving] = N[entering];
-        N[entering] = tmp;
+        pivot(q, p, B, N);
 
-        gsl_vector_free(aj);
+        gsl_vector_free(Aq);
         gsl_vector_free(d);
 
         (*iter_n_ptr)++;
     }
 
     // Extract optimal solution and value
-    if (solution_init(solution_ptr, n, m, unbounded) && !solution_is_unbounded(solution_ptr)) {
-        gsl_vector* x = solution_x_mut(solution_ptr);
-        double z = 0.0;
-        for (uint32_t i = 0; i < n; i++) {
-            gsl_vector_set(x, B[i], gsl_vector_get(xB, i));
-        }
-
-        gsl_blas_ddot(c, x, &z);
-        solution_set_optimal_value(solution_ptr, is_max ? z : -z);
+    if (solution_init(solution_ptr, n, m, unbounded) && !unbounded) {
+        extract_optimal(n, is_max, B, xB, c, solution_ptr);
     }
 
-    gsl_vector_free(cb);
-    gsl_vector_free(cn);
-    gsl_vector_free(r);
-    gsl_vector_free(xB);
-    gsl_matrix_free(Ab_inv);
-    gsl_matrix_free(Ab);
+    goto cleanup;
 
-    return 1;
+fail:
+    ret = 0;
+
+cleanup:
+    gsl_matrix_free(AB);
+    gsl_matrix_free(AB_inv);
+    gsl_vector_free(xB);
+    gsl_vector_free(cB);
+    gsl_vector_free(cN);
+    gsl_vector_free(r);
+    return ret;
+}
+
+uint32_t simplex_dual(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
+                      const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr, uint32_t* iter_n_ptr) {
+    if (!c || !A || !B || !N || !solution_ptr || !iter_n_ptr) {
+        fprintf(stderr, "Some arguments are NULL in simplex_dual\n");
+        return 0;
+    }
+
+    uint32_t ret = 1;
+
+    gsl_matrix* AB = gsl_matrix_alloc(n, n);
+    gsl_matrix* AB_inv = NULL;
+    gsl_vector* xB = gsl_vector_alloc(n);
+    gsl_vector* cB = gsl_vector_alloc(n);
+    gsl_vector* cN = gsl_vector_alloc(m - n);
+    gsl_vector* r = gsl_vector_alloc(m - n);
+
+    if (!AB || !xB || !cB || !cN || !r) {
+        goto fail;
+    }
+
+    *iter_n_ptr = 0;
+    uint32_t unbounded = 0;
+    while (1) {
+        // Extract AB matrix and cB vector
+        extract_basic_objects(n, is_max, B, c, A, cB, AB);
+
+        // Compute AB_inv = AB^-1
+        gsl_matrix* old = AB_inv;
+        AB_inv = inverse(AB, n);
+        gsl_matrix_free(old);
+        if (!AB_inv) {
+            goto fail;
+        }
+
+        // Compute xB = AB_inv * b
+        compute_basic_solution(AB_inv, b, xB);
+
+        // For all non-basic variables
+        compute_reduced_costs(n, m, is_max, N, c, cB, cN, A, AB_inv, r);
+
+        // Choose leaving basic variable (primal-infeasible)
+        int32_t p = -1;
+        double most_negative = -1e-8;
+        for (uint32_t i = 0; i < n; i++) {
+            double xi = gsl_vector_get(xB, i);
+            if (xi < most_negative) {
+                most_negative = xi;
+                p = i;
+            }
+        }
+
+        if (p == -1) {
+            break;  // Primal feasible, so optimal
+        }
+
+        // Extract leaving row from AB_inv
+        gsl_vector* AB_inv_p = gsl_vector_alloc(n);
+        if (!extract_row(AB_inv, (uint32_t)p, AB_inv_p)) {
+            goto fail;
+        }
+
+        // Choose entering variable by computing alpha_pj = AB_inv_p * Aj for each non-basic variable
+        double min_ratio = 1e20;
+        int32_t q = -1;
+        gsl_vector* Aj = gsl_vector_alloc(n);
+        for (uint32_t i = 0; i < m - n; i++) {
+            uint32_t j = N[i];
+
+            // Aj
+            if (!extract_column(A, j, Aj)) {
+                gsl_vector_free(AB_inv_p);
+                gsl_vector_free(Aj);
+                goto fail;
+            }
+
+            double alpha_pj;
+            gsl_blas_ddot(AB_inv_p, Aj, &alpha_pj);
+
+            // Only include positive ones
+            if (alpha_pj > 0.0) {
+                double ratio = -gsl_vector_get(r, j) / alpha_pj;
+                if (ratio < min_ratio) {
+                    min_ratio = ratio;
+                    q = i;
+                }
+            }
+        }
+        gsl_vector_free(Aj);
+        gsl_vector_free(AB_inv_p);
+
+        if (q == -1) {
+            unbounded = 1;
+            break;
+        }
+
+        pivot(q, p, B, N);
+
+        (*iter_n_ptr)++;
+    }
+
+    // Extract optimal solution and value
+    if (solution_init(solution_ptr, n, m, unbounded) && !unbounded) {
+        extract_optimal(n, is_max, B, xB, c, solution_ptr);
+    }
+
+    goto cleanup;
+
+fail:
+    ret = 0;
+
+cleanup:
+    gsl_matrix_free(AB);
+    gsl_matrix_free(AB_inv);
+    gsl_vector_free(xB);
+    gsl_vector_free(cB);
+    gsl_vector_free(cN);
+    gsl_vector_free(r);
+    return ret;
 }
