@@ -1,4 +1,5 @@
 #include "simplex/utils.h"
+#include "utils.h"
 
 #include <gsl/gsl_linalg.h>
 
@@ -108,5 +109,5 @@ void extract_optimal(uint32_t n, uint32_t is_max, int32_t* B, gsl_vector* xB, co
     }
 
     gsl_blas_ddot(c, x, &z);
-    solution_set_optimal_value(solution_ptr, is_max ? z : -z);
+    solution_set_z(solution_ptr, is_max ? z : -z);
 }

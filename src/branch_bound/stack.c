@@ -3,17 +3,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-pnode_t* pnode_new(bb_node_t* bb_node_ptr) {
-    if (!bb_node_ptr) {
-        return NULL;
-    }
-
+pnode_t* pnode_new(bb_node_t bb_node) {
     pnode_t* n = (pnode_t*)malloc(sizeof(pnode_t));
     if (!n) {
         return NULL;
     }
 
-    n->bb_node_ptr = bb_node_ptr;
+    n->bb_node = bb_node;
     n->next = NULL;
 
     return n;
@@ -77,12 +73,12 @@ uint32_t pstack_empty(const pstack_t* pstack_ptr) {
     return !pstack_ptr || plist_empty(pstack_ptr->top);
 }
 
-uint32_t pstack_push(pstack_t* pstack_ptr, bb_node_t* bb_node_ptr) {
-    if (!pstack_ptr || !bb_node_ptr) {
+uint32_t pstack_push(pstack_t* pstack_ptr, bb_node_t bb_node) {
+    if (!pstack_ptr) {
         return 0;
     }
 
-    pnode_t* n = pnode_new(bb_node_ptr);
+    pnode_t* n = pnode_new(bb_node);
     if (!n) {
         return 0;
     }
@@ -95,22 +91,22 @@ uint32_t pstack_push(pstack_t* pstack_ptr, bb_node_t* bb_node_ptr) {
     return 0;
 }
 
-bb_node_t* pstack_pop(pstack_t* pstack_ptr) {
-    if (!pstack_ptr) {
-        return NULL;
+uint32_t pstack_pop(pstack_t* pstack_ptr, bb_node_t* bb_node_ptr) {
+    if (!pstack_ptr || !bb_node_ptr) {
+        return 0;
     }
 
     pnode_t* removed = plist_remove(&pstack_ptr->top);
     if (!removed) {
-        return NULL;
+        return 0;
     }
 
-    bb_node_t* bb_node_ptr = removed->bb_node_ptr;
+    *bb_node_ptr = removed->bb_node;
     free(removed);
 
     pstack_ptr->size--;
 
-    return bb_node_ptr;
+    return 1;
 }
 
 uint32_t pstack_size(const pstack_t* pstack_ptr) {

@@ -41,7 +41,6 @@ const variable_t* var_arr_get(const var_arr_t* array_ptr, uint32_t i);
 uint32_t var_arr_length(const var_arr_t* array_ptr);
 uint32_t var_arr_capacity(const var_arr_t* array_ptr);
 uint32_t var_arr_push(var_arr_t* array_ptr, variable_t* variable_ptr);
-uint32_t var_arr_duplicate(const var_arr_t* original, var_arr_t* new);
 void var_arr_free(var_arr_t* array_ptr);
 
 #endif

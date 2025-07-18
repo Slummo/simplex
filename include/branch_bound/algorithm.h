@@ -1,12 +1,15 @@
 #ifndef BRANCH_BOUND_H
 #define BRANCH_BOUND_H
 
+#include "branch_bound/stack.h"
 #include "solution.h"
 #include "problem.h"
 #include "branch_bound/node.h"
 
 #define MAX_N 500
 #define MAX_M 500
+
+uint32_t init(const problem_t* problem_ptr, pstack_t* stack_ptr, bb_arena_t* arena_ptr, var_arr_t* var_arr_ptr);
 
 typedef uint32_t (*solve_fn)(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
                              const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr,
@@ -20,6 +23,8 @@ uint32_t solve_relaxation(solve_fn solver, uint32_t is_max, bb_node_t* node_ptr,
 // integers or the index of the first non-integer
 // variable on success
 int32_t select_branch_var(const var_arr_t* var_arr_ptr, const solution_t* current_sol_ptr);
+
+uint32_t update(solution_t* best_solution, solution_t* current_solution, bb_node_t* current_node, pstack_t* stack_ptr);
 
 // Branch and bound method on linear problem p
 uint32_t branch_and_bound(problem_t* problem_ptr, solution_t* solution_ptr);

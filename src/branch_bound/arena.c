@@ -49,7 +49,7 @@ void bb_arena_copy_problem(bb_arena_t* arena_ptr, const problem_t* problem_ptr) 
     const int32_t* B = problem_B(problem_ptr);
 
     memcpy(arena_ptr->c_base, c->data, sizeof(double) * m);
-    memcpy(arena_ptr->A_base, A->data, sizeof(double) * n * m);
+    memcpy(arena_ptr->A_base, A->data, sizeof(double) * n * (m + n));
     memcpy(arena_ptr->b_base, b->data, sizeof(double) * n);
 
     memcpy(arena_ptr->B, B, sizeof(int32_t) * n);

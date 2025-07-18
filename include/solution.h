@@ -19,6 +19,8 @@ uint32_t solution_init(solution_t* solution_ptr, uint32_t n, uint32_t m, uint32_
 // Checks if the i-th component of the solution is an integer
 uint32_t solution_var_is_integer(const solution_t* solution_ptr, uint32_t i);
 
+uint32_t solution_is_integer(const solution_t* solution_ptr);
+
 // Pretty print
 void solution_print(const solution_t* solution_ptr, const char* name);
 
@@ -33,7 +35,8 @@ uint32_t solution_pI_iterations(const solution_t* solution_ptr);
 uint32_t solution_pII_iterations(const solution_t* solution_ptr);
 
 /* SETTERS */
-uint32_t solution_set_optimal_value(solution_t* solution_ptr, double optimal_value);
+uint32_t solution_set_x(solution_t* solution_ptr, gsl_vector* x);
+uint32_t solution_set_z(solution_t* solution_ptr, double z);
 uint32_t solution_set_pI_iter(solution_t* solution_ptr, uint32_t pI_iter);
 uint32_t solution_set_pII_iter(solution_t* solution_ptr, uint32_t pII_iter);
 

@@ -1,7 +1,6 @@
 #include "variable.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 /* VARIABLE */
 
@@ -173,21 +172,6 @@ uint32_t var_arr_push(var_arr_t* array_ptr, variable_t* variable_ptr) {
     }
 
     array_ptr->data[array_ptr->length++] = variable_copy(*variable_ptr);
-    return 1;
-}
-
-uint32_t var_arr_duplicate(const var_arr_t* original, var_arr_t* new) {
-    if (!original || !new) {
-        return 0;
-    }
-
-    if (!var_arr_init(new, original->capacity)) {
-        return 0;
-    }
-
-    memcpy(new->data, original->data, sizeof(variable_t) * original->length);
-    new->length = original->length;
-
     return 1;
 }
 

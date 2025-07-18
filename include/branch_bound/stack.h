@@ -5,11 +5,11 @@
 
 /* PLIST */
 typedef struct pnode {
-    bb_node_t* bb_node_ptr;
+    bb_node_t bb_node;
     struct pnode* next;
 } pnode_t;
 
-pnode_t* pnode_new(bb_node_t* bb_node_ptr);
+pnode_t* pnode_new(bb_node_t bb_node);
 uint32_t plist_empty(const pnode_t* l);
 uint32_t plist_insert(pnode_t** lp, pnode_t* n);
 pnode_t* plist_remove(pnode_t** lp);
@@ -23,8 +23,8 @@ typedef struct pstack {
 
 uint32_t pstack_init(pstack_t* pstack_ptr);
 uint32_t pstack_empty(const pstack_t* pstack_ptr);
-uint32_t pstack_push(pstack_t* pstack_ptr, bb_node_t* bb_node_ptr);
-bb_node_t* pstack_pop(pstack_t* pstack_ptr);
+uint32_t pstack_push(pstack_t* pstack_ptr, bb_node_t bb_node);
+uint32_t pstack_pop(pstack_t* pstack_ptr, bb_node_t* bb_node_ptr);
 uint32_t pstack_size(const pstack_t* pstack_ptr);
 void pstack_free(pstack_t* pstack_ptr);
 

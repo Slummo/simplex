@@ -28,13 +28,23 @@ uint32_t solution_init(solution_t* solution_ptr, uint32_t n, uint32_t m, uint32_
 // Checks if the i-th component of the solution is an integer
 uint32_t solution_var_is_integer(const solution_t* solution_ptr, uint32_t i) {
     if (!solution_ptr) {
-        fprintf(stderr, "solution_ptr is NULL in solution_var_is_integer\n");
         return 0;
     }
 
     double xi = gsl_vector_get(solution_ptr->x, i);
     double diff = fabs(xi - round(xi));
     return diff < 1e-8;
+}
+
+uint32_t solution_is_integer(const solution_t* solution_ptr) {
+    uint32_t is_integer = 1;
+    for (uint32_t i = 0; is_integer && i < solution_ptr->x->size; i++) {
+        if (!solution_var_is_integer(solution_ptr, i)) {
+            is_integer = 0;
+        }
+    }
+
+    return is_integer;
 }
 
 // Pretty print
@@ -53,9 +63,10 @@ void solution_print(const solution_t* solution_ptr, const char* name) {
     }
 
     if (!solution_ptr->is_unbounded) {
-        for (uint32_t i = 0; i < solution_ptr->m; i++) {
+        uint32_t len = solution_ptr->m - solution_ptr->n;
+        for (uint32_t i = 0; i < len; i++) {
             printf("%.3lf", gsl_vector_get(solution_ptr->x, i));
-            if (i < solution_ptr->m - 1) {
+            if (i < len - 1) {
                 printf(", ");
             }
         }
@@ -98,13 +109,21 @@ uint32_t solution_pII_iterations(const solution_t* solution_ptr) {
 
 /* SETTERS */
 
-uint32_t solution_set_optimal_value(solution_t* solution_ptr, double optimal_value) {
+uint32_t solution_set_x(solution_t* solution_ptr, gsl_vector* x) {
     if (!solution_ptr) {
         return 0;
     }
 
-    solution_ptr->z = optimal_value;
+    solution_ptr->x = x;
+    return 1;
+}
 
+uint32_t solution_set_z(solution_t* solution_ptr, double z) {
+    if (!solution_ptr) {
+        return 0;
+    }
+
+    solution_ptr->z = z;
     return 1;
 }
 
@@ -114,7 +133,6 @@ uint32_t solution_set_pI_iter(solution_t* solution_ptr, uint32_t pI_iter) {
     }
 
     solution_ptr->pI_iter = pI_iter;
-
     return 1;
 }
 
@@ -124,6 +142,5 @@ uint32_t solution_set_pII_iter(solution_t* solution_ptr, uint32_t pII_iter) {
     }
 
     solution_ptr->pII_iter = pII_iter;
-
     return 1;
 }

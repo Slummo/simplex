@@ -146,8 +146,7 @@ uint32_t simplex_primal(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vecto
 
         // Compute direction vector d = -AB_inv * Aq
         gsl_vector* d = gsl_vector_alloc(n);
-        gsl_matrix_scale(AB_inv, -1.0);
-        gsl_blas_dgemv(CblasNoTrans, 1.0, AB_inv, Aq, 0.0, d);
+        gsl_blas_dgemv(CblasNoTrans, -1.0, AB_inv, Aq, 0.0, d);
 
         // Choose leaving variable
         double min_ratio = 1e20;
@@ -181,7 +180,7 @@ uint32_t simplex_primal(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vecto
     }
 
     // Extract optimal solution and value
-    if (solution_init(solution_ptr, n, m, unbounded) && !unbounded) {
+    if (solution_init(solution_ptr, n, m + n, unbounded) && !unbounded) {
         extract_optimal(n, is_max, B, xB, c, solution_ptr);
     }
 

@@ -1,4 +1,5 @@
 #include "utils.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,4 +39,33 @@ int32_t* calculate_nonbasis(int32_t* B, uint32_t n, uint32_t m) {
 
     free(used);
     return N;
+}
+
+// Print a length‑n vector v in a single row.
+void print_vector(const char* name, const gsl_vector* v) {
+    size_t n = v->size;
+    printf("%s = [", name);
+    for (size_t i = 0; i < n; i++) {
+        printf(" %.6g", gsl_vector_get(v, i));
+        if (i + 1 < n)
+            putchar(',');
+    }
+    printf(" ]\n");
+}
+
+// Print an n×m matrix M in a readable form.
+void print_matrix(const char* name, const gsl_matrix* M) {
+    size_t n = M->size1;
+    size_t m = M->size2;
+    printf("%s = [\n", name);
+    for (size_t i = 0; i < n; i++) {
+        printf("  [");
+        for (size_t j = 0; j < m; j++) {
+            printf(" % .6g", gsl_matrix_get(M, i, j));
+            if (j + 1 < m)
+                putchar(',');
+        }
+        printf(" ]\n");
+    }
+    printf("]\n");
 }
