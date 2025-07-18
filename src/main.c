@@ -46,37 +46,27 @@ int main(int argc, char** args) {
         return EXIT_FAILURE;
     }
 
-    problem_t problem;
-    if (!problem_from_model(&problem, stream)) {
+    problem_t problem = {0};
+    if (!problem_from_stream(&problem, stream)) {
         fprintf(stderr, "Failed to create problem\n");
         return EXIT_FAILURE;
     }
 
     problem_print(&problem, "Problem");
 
-    const char* solver_name = NULL;
-
-    solution_t solution;
-    uint32_t sol_state = 1;
-    if (problem_is_milp(&problem)) {
-        solver_name = "Branch and bound";
-        // s = branch_and_bound(p);
-    } else {
-        solver_name = "Simplex";
-        sol_state = solve_with_simplex(&problem, &solution);
+    solution_t solution = {0};
+    if (!problem_solve(&problem, &solution)) {
+        fprintf(stderr, "Failed to solve problem\n");
+        problem_free(&problem);
+        solution_free(&solution);
+        return EXIT_FAILURE;
     }
 
-    int res = EXIT_SUCCESS;
-    if (!sol_state) {
-        fprintf(stderr, "Failed to solve with %s\n", solver_name);
-        res = EXIT_FAILURE;
-    }
     solution_print(&solution, "Solution");
 
     problem_free(&problem);
     solution_free(&solution);
-
     print_performance_report(&t_start, &t_end, &usage);
 
-    return res;
+    return EXIT_SUCCESS;
 }

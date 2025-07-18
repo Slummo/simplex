@@ -1,15 +1,9 @@
-#ifndef SIMPLEX_H
-#define SIMPLEX_H
+#ifndef S_UTILS_H
+#define S_UTILS_H
 
-#include "problem.h"
 #include "solution.h"
-#include "variable.h"
-#include <stdint.h>
-#include <gsl/gsl_matrix.h>
-#include <gsl/gsl_vector.h>
 
-// Find problem basis indices with Phase 1 method
-int32_t* simplex_phaseI(problem_t* problem_ptr, uint32_t* iter_n_ptr);
+#include <gsl/gsl_matrix.h>
 
 void extract_basic_objects(uint32_t n, uint32_t is_max, int32_t* B, const gsl_vector* c, const gsl_matrix* A,
                            gsl_vector* cB, gsl_matrix* AB);
@@ -22,11 +16,5 @@ uint32_t extract_row(const gsl_matrix* m, uint32_t i, gsl_vector* row);
 void pivot(int32_t entering, int32_t leaving, int32_t* B, int32_t* N);
 void extract_optimal(uint32_t n, uint32_t is_max, int32_t* B, gsl_vector* xB, const gsl_vector* c,
                      solution_t* solution_ptr);
-
-uint32_t simplex_primal(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                        const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr, uint32_t* iter_n_ptr);
-
-uint32_t simplex_dual(uint32_t n, uint32_t m, uint32_t is_max, const gsl_vector* c, const gsl_matrix* A,
-                      const gsl_vector* b, int32_t* B, int32_t* N, solution_t* solution_ptr, uint32_t* iter_n_ptr);
 
 #endif

@@ -1,12 +1,15 @@
 #include "problem.h"
 #include "utils.h"
-#include "simplex.h"
+#include "simplex/primal.h"
+#include "branch_bound/algorithm.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define PRINT_TERM_WIDTH 8
 
 gsl_vector* gsl_vector_from_stream(FILE* stream, char* name, uint32_t capacity, uint32_t size) {
     if (size > capacity) {
@@ -67,7 +70,75 @@ gsl_matrix* gsl_matrix_from_stream(FILE* stream, char* name, uint32_t row_capaci
     return m;
 }
 
-uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream) {
+void problem_make_RHS_positive(uint32_t n, gsl_matrix* A, gsl_vector* b) {
+    for (uint32_t i = 0; i < n; i++) {
+        double bi = gsl_vector_get(b, i);
+        if (bi < 0.0) {
+            // Flip bi
+            gsl_vector_set(b, i, -bi);
+
+            // Flip row Ai
+            gsl_vector_view row = gsl_matrix_row(A, i);
+            gsl_vector_scale(&row.vector, -1.0);
+        }
+    }
+}
+
+int32_t* problem_find_primal_base(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gsl_matrix* A, gsl_vector* b,
+                                  var_arr_t* var_arr_ptr, uint32_t* iter_n_ptr) {
+    if (!c || !A || !b || !iter_n_ptr) {
+        fprintf(stderr, "Some arguments are NULL in problem_find_primal_base\n");
+        return NULL;
+    }
+
+    int32_t* B = (int32_t*)malloc(sizeof(int32_t) * n);
+    if (!B) {
+        return NULL;
+    }
+
+    // Initialize basis indices to -1
+    for (uint32_t i = 0; i < n; i++) {
+        B[i] = -1;
+    }
+
+    // Check for identity
+    uint32_t n_indices_set = 0;
+    for (uint32_t j = 0; j < m; j++) {
+        int32_t pivot_row = -1;
+        uint32_t valid = 1;
+        for (uint32_t i = 0; valid && i < n; i++) {
+            double aij = gsl_matrix_get(A, i, j);
+            if (aij == 1.0) {
+                if (pivot_row == -1) {
+                    pivot_row = (int32_t)i;
+                } else {
+                    valid = 0;
+                }
+            } else if (aij != 0.0) {
+                valid = 0;
+            }
+        }
+        if (valid && pivot_row != -1 && B[pivot_row] == -1) {
+            B[pivot_row] = j;
+            n_indices_set++;
+        }
+    }
+
+    // If the B array of indices has been filled
+    if (n_indices_set == n) {
+        return B;
+    }
+
+    memset(B, 0, sizeof(int32_t) * n);
+
+    if (!simplex_primal_phaseI(n, m, is_max, c, A, b, B, var_arr_ptr, iter_n_ptr)) {
+        fprintf(stderr, "Failed to find initial primal feasible base with PhaseI\n");
+    }
+
+    return B;
+}
+
+uint32_t problem_from_stream(problem_t* problem_ptr, FILE* stream) {
     if (!problem_ptr || !stream) {
         return 0;
     }
@@ -78,7 +149,7 @@ uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream) {
     gsl_vector* c = NULL;
     gsl_matrix* A = NULL;
     gsl_vector* b = NULL;
-    var_arr_t var_arr;
+    var_arr_t var_arr = {0};
     int32_t* B = NULL;
     int32_t* N = NULL;
 
@@ -143,8 +214,12 @@ uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream) {
     problem_ptr->var_arr = var_arr;
     problem_ptr->pI_iter = 0;
 
-    // Find a base with phaseI
-    B = simplex_phaseI(problem_ptr, &problem_ptr->pI_iter);
+    problem_make_RHS_positive(n, A, b);
+
+    B = problem_find_primal_base(n, m, is_max, c, A, b, &var_arr, &problem_ptr->pI_iter);
+    if (!B) {
+        goto fail;
+    }
 
     N = calculate_nonbasis(B, n, m + n);
     if (!N) {
@@ -173,148 +248,12 @@ fail:
     return 0;
 }
 
-uint32_t problem_is_milp(const problem_t* problem_ptr) {
-    if (!problem_ptr) {
-        return 0;
-    }
-
-    const var_arr_t* var_arr_ptr = &problem_ptr->var_arr;
-    for (uint32_t i = 0; i < problem_ptr->m; i++) {
-        const variable_t* v = var_arr_get(var_arr_ptr, i);
-        if (variable_is_integer(v)) {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-/// @brief Checks if a problem has a primal-feasible base. If not, the B array is zeroed.
-/// @param problem_ptr A const pointer to the problem to check
-/// @param B           A dynamically allocated array of length n; on success B[i]=j
-///                    is the column index of the basis variable for row i.
-/// @return 1 if the problem has a primal-feasible base, else 0
-uint32_t problem_has_primal_feasible_base(const problem_t* problem_ptr, int32_t* B) {
-    if (!problem_ptr || !B) {
-        return 0;
-    }
-
-    uint32_t n = problem_n(problem_ptr);
-    uint32_t m = problem_m(problem_ptr);
-
-    int8_t* pivot_sign = (int8_t*)malloc(sizeof(int8_t) * n);
-    if (!pivot_sign) {
-        return 0;
-    }
-
-    // Initialize
-    for (uint32_t i = 0; i < n; i++) {
-        B[i] = -1;
-        pivot_sign[i] = 0;
-    }
-
-    // Check for diagonal "identity" matrix with +-1
-    const gsl_matrix* A = problem_A(problem_ptr);
-    for (uint32_t j = 0; j < m; j++) {
-        int32_t pivot_row = -1;
-        int valid = 1;
-
-        for (uint32_t i = 0; valid && i < n; i++) {
-            double aij = gsl_matrix_get(A, i, j);
-            if (aij == 1.0 || aij == -1.0) {
-                if (pivot_row < 0) {
-                    pivot_row = i;
-                    pivot_sign[i] = (int8_t)aij;
-                } else {
-                    valid = 0;  // more than one nonzero
-                }
-            } else if (aij != 0.0) {
-                valid = 0;
-            }
-        }
-
-        // If exactly one +-1 and that row has no basis yet then assign
-        if (valid && pivot_row >= 0 && B[pivot_row] < 0) {
-            B[pivot_row] = (int32_t)j;
-        }
-    }
-
-    // Check feasibility: for each basic row i,
-    //    pivot_sign[i] * b[i]  must be >= 0
-    const gsl_vector* b = problem_b(problem_ptr);
-    uint32_t is_feasible = 1;
-    for (uint32_t i = 0; is_feasible && i < n; i++) {
-        if (B[i] < 0 || pivot_sign[i] * gsl_vector_get(b, i) < 0) {
-            is_feasible = 0;
-        }
-    }
-
-    if (!is_feasible) {
-        memset(B, 0, sizeof(int32_t) * n);
-    }
-
-    free(pivot_sign);
-    return is_feasible;
-}
-
-uint32_t solve_with_simplex(problem_t* problem_ptr, solution_t* solution_ptr) {
-    if (!problem_ptr || !solution_ptr) {
-        return 0;
-    }
-
-    uint32_t n = problem_ptr->n;
-    uint32_t m = problem_ptr->m;
-    uint32_t is_max = problem_ptr->is_max;
-
-    // Get views
-    gsl_vector_view c_view = gsl_vector_subvector(problem_ptr->c, 0, m);
-    gsl_vector* c_gsl = &c_view.vector;
-
-    gsl_matrix_view A_view = gsl_matrix_submatrix(problem_ptr->A, 0, 0, n, m);
-    gsl_matrix* A_gsl = &A_view.matrix;
-
-    gsl_vector_view b_view = gsl_vector_subvector(problem_ptr->b, 0, n);
-    gsl_vector* b_gsl = &b_view.vector;
-
-    uint32_t iter_n = 0;
-    uint32_t res =
-        simplex_primal(n, m, is_max, c_gsl, A_gsl, b_gsl, problem_ptr->B, problem_ptr->N, solution_ptr, &iter_n);
-
-    solution_set_pI_iter(solution_ptr, problem_ptr->pI_iter);
-    solution_set_pII_iter(solution_ptr, iter_n);
-
-    return res;
-}
-
-// Choses a non-integer variable to start branching from.
-// Returns -2 on error, -1 if the solution contains only
-// integers or the index of the first non-integer
-// variable on success
-int32_t problem_select_branch_var(const problem_t* problem_ptr, const solution_t* current_sol_ptr) {
-    if (!problem_ptr || !current_sol_ptr) {
-        fprintf(stderr, "Some arguments are NULL in problem_select_branch_var\n");
-        return -2;
-    }
-
-    const var_arr_t* var_arr_ptr = &problem_ptr->var_arr;
-    for (uint32_t i = 0; i < var_arr_length(var_arr_ptr); i++) {
-        const variable_t* v = var_arr_get(var_arr_ptr, i);
-        if (variable_is_integer(v) && !solution_var_is_integer(current_sol_ptr, i)) {
-            return (int32_t)i;
-        }
-    }
-
-    return -1;
-}
-
-#define TERM_WIDTH 8
-
 void print_coefficient(double coef, uint32_t var_idx, int is_first) {
-    char buf[TERM_WIDTH + 1];
+    char buf[PRINT_TERM_WIDTH + 1];
 
     if (fabs(coef) < 1e-9) {
         // Print spaces for alignment
-        snprintf(buf, sizeof(buf), "%*s", TERM_WIDTH, "");
+        snprintf(buf, sizeof(buf), "%*s", PRINT_TERM_WIDTH, "");
     } else {
         char sign = coef < 0 ? '-' : (is_first ? ' ' : '+');
         double abs_val = fabs(coef);
@@ -329,7 +268,7 @@ void print_coefficient(double coef, uint32_t var_idx, int is_first) {
         }
     }
 
-    printf("%*s", TERM_WIDTH, buf);
+    printf("%*s", PRINT_TERM_WIDTH, buf);
 }
 
 // Pretty print
@@ -376,6 +315,52 @@ void problem_print(const problem_t* problem_ptr, const char* name) {
         variable_print(var_arr_get(var_arr, i));
     }
     puts("");
+}
+
+uint32_t problem_is_milp(const problem_t* problem_ptr) {
+    if (!problem_ptr) {
+        return 0;
+    }
+
+    const var_arr_t* var_arr_ptr = &problem_ptr->var_arr;
+    for (uint32_t i = 0; i < problem_ptr->m; i++) {
+        const variable_t* v = var_arr_get(var_arr_ptr, i);
+        if (variable_is_integer(v)) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+uint32_t problem_solve(problem_t* problem_ptr, solution_t* solution_ptr) {
+    if (!problem_ptr || !solution_ptr) {
+        fprintf(stderr, "Some arguments are NULL in problem_solve\n");
+        return 0;
+    }
+
+    // Solve with B&B
+    if (problem_is_milp(problem_ptr)) {
+        return branch_and_bound(problem_ptr, solution_ptr);
+    }
+
+    // Solve with Primal Simplex
+    uint32_t n = problem_ptr->n;
+    uint32_t m = problem_ptr->m;
+    uint32_t is_max = problem_ptr->is_max;
+
+    gsl_vector_view c = gsl_vector_subvector(problem_ptr->c, 0, m);
+    gsl_matrix_view A = gsl_matrix_submatrix(problem_ptr->A, 0, 0, n, m);
+    gsl_vector_view b = gsl_vector_subvector(problem_ptr->b, 0, n);
+
+    uint32_t iter_n = 0;
+    uint32_t res = simplex_primal(n, m, is_max, &c.vector, &A.matrix, &b.vector, problem_ptr->B, problem_ptr->N,
+                                  solution_ptr, &iter_n);
+
+    solution_set_pI_iter(solution_ptr, problem_ptr->pI_iter);
+    solution_set_pII_iter(solution_ptr, iter_n);
+
+    return res;
 }
 
 void problem_free(problem_t* problem_ptr) {

@@ -5,8 +5,8 @@
 
 #include "variable.h"
 #include "solution.h"
-#include <stdint.h>
 
+#include <stdint.h>
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
 
@@ -23,27 +23,19 @@ typedef struct problem {
     var_arr_t var_arr;  // Array of variables
 } problem_t;
 
-uint32_t problem_from_model(problem_t* problem_ptr, FILE* stream);
+void problem_make_RHS_positive(uint32_t n, gsl_matrix* A, gsl_vector* b);
+
+int32_t* problem_find_primal_base(uint32_t n, uint32_t m, uint32_t is_max, gsl_vector* c, gsl_matrix* A, gsl_vector* b,
+                                  var_arr_t* var_arr_ptr, uint32_t* iter_n_ptr);
+
+uint32_t problem_from_stream(problem_t* problem_ptr, FILE* stream);
 
 uint32_t problem_is_milp(const problem_t* problem_ptr);
-
-// Choses a non-integer variable to start branching from.
-// Returns -2 on error, -1 if the solution contains only
-// integers or the index of the first non-integer
-// variable on success
-int32_t problem_select_branch_var(const problem_t* problem_ptr, const solution_t* current_sol_ptr);
 
 // Pretty print
 void problem_print(const problem_t* problem_ptr, const char* name);
 
-/// @brief Checks if a problem has a primal-feasible base. If not, the B array is zeroed.
-/// @param problem_ptr A const pointer to the problem to check
-/// @param B           A dynamically allocated array of length n; on success B[i]=j
-///                    is the column index of the basis variable for row i.
-/// @return 1 if the problem has a primal-feasible base, else 0
-uint32_t problem_has_primal_feasible_base(const problem_t* problem_ptr, int32_t* B);
-
-uint32_t solve_with_simplex(problem_t* problem_ptr, solution_t* solution_ptr);
+uint32_t problem_solve(problem_t* problem_ptr, solution_t* solution_ptr);
 
 void problem_free(problem_t* problem_ptr);
 

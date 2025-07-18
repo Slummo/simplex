@@ -9,11 +9,10 @@ int32_t* calculate_nonbasis(int32_t* B, uint32_t n, uint32_t m) {
     }
 
     // Create nonbasis indices array
-    int32_t* used = (int32_t*)malloc(sizeof(int32_t) * m);
+    int32_t* used = (int32_t*)calloc(m, sizeof(int32_t));
     if (!used) {
         return NULL;
     }
-    memset(used, 0, sizeof(int32_t) * m);
 
     for (uint32_t i = 0; i < n; i++) {
         if (B[i] >= (int32_t)m || used[B[i]]) {
